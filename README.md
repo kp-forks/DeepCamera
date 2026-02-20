@@ -27,13 +27,13 @@
 
 <div align="center">
 
-### 🚀 Introducing [Aegis AI](https://www.sharpai.org) — The World's First AI Home Security Agent
+### 🚀 Introducing [SharpAI Aegis](https://www.sharpai.org) — The World's First AI Home Security Agent
 
 **GPT + Local VLM powered security agent for your Mac and PC. Always connected to your mobile via Discord / Telegram / Slack.**
 
-**Aegis AI** is the next-generation product from SharpAI — a desktop security agent that connects to any camera, understands scenes using Vision Language Models, and talks to your family through the apps they already use. DeepCamera will be integrated into Aegis AI as its detection and model training engine.
+**SharpAI Aegis** is the next-generation product from SharpAI — a desktop security agent that connects to any camera, understands scenes using Vision Language Models, and talks to your family through the apps they already use. DeepCamera will be integrated into Aegis AI as its detection and model training engine.
 
-[**🌐 Visit www.sharpai.org**](https://www.sharpai.org) · [**📦 Download Aegis AI**](https://github.com/SharpAI/DeepCamera/releases/tag/Aegis)
+[**🌐 Visit www.sharpai.org**](https://www.sharpai.org) · [**📦 Download SharpAI Aegis**](https://github.com/SharpAI/DeepCamera/releases/tag/Aegis)
 
 </div>
 
