@@ -243,41 +243,6 @@
       ]
     },
     {
-      "id": "camera-provider-blink",
-      "name": "Blink Cameras",
-      "description": "Amazon Blink camera integration — motion clips, snapshots, arm/disarm.",
-      "version": "1.0.0",
-      "category": "camera-providers",
-      "path": "skills/camera-providers/blink",
-      "tags": [
-        "blink",
-        "amazon",
-        "camera",
-        "clips"
-      ],
-      "platforms": [
-        "linux-x64",
-        "linux-arm64",
-        "darwin-arm64",
-        "darwin-x64",
-        "win-x64"
-      ],
-      "requirements": {
-        "python": ">=3.9",
-        "ram_gb": 1
-      },
-      "capabilities": [
-        "clip_feed",
-        "discover_cameras",
-        "snapshot",
-        "arm_disarm"
-      ],
-      "ui_unlocks": [
-        "camera_timeline",
-        "clip_feed"
-      ]
-    },
-    {
       "id": "camera-provider-eufy",
       "name": "Eufy Cameras",
       "description": "Eufy camera integration — local RTSP streaming and event clips.",
@@ -363,41 +328,6 @@
         "camera",
         "rtsp",
         "onvif"
-      ],
-      "platforms": [
-        "linux-x64",
-        "linux-arm64",
-        "darwin-arm64",
-        "darwin-x64",
-        "win-x64"
-      ],
-      "requirements": {
-        "python": ">=3.9",
-        "ram_gb": 1
-      },
-      "capabilities": [
-        "clip_feed",
-        "discover_cameras",
-        "live_stream"
-      ],
-      "ui_unlocks": [
-        "camera_timeline",
-        "clip_feed",
-        "live_view"
-      ]
-    },
-    {
-      "id": "camera-provider-ring",
-      "name": "Ring Cameras",
-      "description": "Ring camera integration — event clips and live view.",
-      "version": "1.0.0",
-      "category": "camera-providers",
-      "path": "skills/camera-providers/ring",
-      "tags": [
-        "ring",
-        "amazon",
-        "camera",
-        "doorbell"
       ],
       "platforms": [
         "linux-x64",
