@@ -436,54 +436,23 @@ Respond with ONLY a JSON object:
 }
 
 suite('🔔 Event Deduplication', async () => {
-    await test('Same person lingering → duplicate', async () => {
-        const r = await llmCall([
-            { role: 'system', content: 'You are a security event classifier. Respond only with valid JSON.' },
-            {
-                role: 'user', content: buildDedupPrompt(
-                    { camera: 'Front Door', type: 'motion', summary: 'Person in blue shirt standing on sidewalk looking at camera' },
-                    { camera: 'Front Door', type: 'motion', summary: 'Man in blue shirt on sidewalk, inspecting security camera' },
-                    120
-                )
-            },
-        ], { maxTokens: 150, temperature: 0.1 });
-        const p = parseJSON(r.content);
-        assert(p.duplicate === true, `Expected duplicate=true, got ${p.duplicate}`);
-        return `dup=true, confidence=${p.confidence}`;
-    });
-
-    await test('Different person → unique', async () => {
-        const r = await llmCall([
-            { role: 'system', content: 'You are a security event classifier. Respond only with valid JSON.' },
-            {
-                role: 'user', content: buildDedupPrompt(
-                    { camera: 'Front Door', type: 'motion', summary: 'Woman in red dress carrying package to front door' },
-                    { camera: 'Front Door', type: 'motion', summary: 'Man in blue shirt on sidewalk looking at camera' },
-                    300
-                )
-            },
-        ], { maxTokens: 150, temperature: 0.1 });
-        const p = parseJSON(r.content);
-        assert(p.duplicate === false, `Expected duplicate=false, got ${p.duplicate}`);
-        return `dup=false, confidence=${p.confidence}`;
-    });
-
-    await test('Multi-camera same vehicle → correct classification', async () => {
-        const r = await llmCall([
-            { role: 'system', content: 'You are a security event classifier. Respond only with valid JSON.' },
-            {
-                role: 'user', content: buildDedupPrompt(
-                    { camera: 'Side Parking', type: 'motion', summary: 'Car pulling into driveway' },
-                    { camera: 'Front Door', type: 'motion', summary: 'Car visible on street near driveway' },
-                    60
-                )
-            },
-        ], { maxTokens: 150, temperature: 0.1 });
-        const p = parseJSON(r.content);
-        assert(typeof p.duplicate === 'boolean', 'Must be boolean');
-        assert(typeof p.reason === 'string', 'Must have reason');
-        return `dup=${p.duplicate}, reason="${p.reason.slice(0, 50)}"`;
-    });
+    const scenarios = JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, 'tool-use-scenarios.json'), 'utf8'));
+    for (const s of scenarios.dedup_scenarios) {
+        await test(`${s.name}`, async () => {
+            const r = await llmCall([
+                { role: 'system', content: 'You are a security event classifier. Respond only with valid JSON.' },
+                { role: 'user', content: buildDedupPrompt(s.current, s.recent, s.age_sec) },
+            ], { maxTokens: 150, temperature: 0.1 });
+            const p = parseJSON(r.content);
+            if (s.expected_duplicate !== undefined) {
+                assert(p.duplicate === s.expected_duplicate, `Expected duplicate=${s.expected_duplicate}, got ${p.duplicate}`);
+            } else {
+                assert(typeof p.duplicate === 'boolean', 'Must be boolean');
+            }
+            assert(typeof p.reason === 'string', 'Must have reason');
+            return `dup=${p.duplicate}, reason="${(p.reason || '').slice(0, 50)}"`;
+        });
+    }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -595,10 +564,94 @@ suite('💬 Chat & JSON Compliance', async () => {
         assert(c.length > 10, 'Too short');
         return `${c.length} chars`;
     });
+
+    await test('Emergency response tone', async () => {
+        const r = await llmCall([
+            { role: 'system', content: 'You are Aegis, a home security AI assistant. Be concise and match urgency to the situation.' },
+            { role: 'user', content: 'Someone is trying to break into my house right now! I can see them on the camera!' },
+        ]);
+        const c = stripThink(r.content).toLowerCase();
+        // Should NOT respond casually — must show urgency
+        assert(
+            c.includes('call') || c.includes('911') || c.includes('police') || c.includes('emergency') ||
+            c.includes('immediately') || c.includes('urgent') || c.includes('right away') || c.includes('safe'),
+            `Expected urgent tone, got: "${c.slice(0, 80)}"`);
+        return `urgent ✓ (${stripThink(r.content).length} chars)`;
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SUITE 7: VLM SCENE ANALYSIS (optional)
+// SUITE 7: SECURITY CLASSIFICATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const SECURITY_CLASSIFY_PROMPT = `You are a security AI assistant. Classify this security camera event description.
+
+## Classification Levels
+- "normal": Expected activity (deliveries, family, pets, mail)
+- "monitor": Worth watching but not alarming (unknown vehicle, unfamiliar person)
+- "suspicious": Potentially concerning (casing, photographing, loitering)
+- "critical": Immediate threat (break-in attempt, tampering, trespassing at night)
+
+## Response Format
+Respond with ONLY valid JSON:
+{"classification": "normal|monitor|suspicious|critical", "tags": ["tag1", "tag2"], "reason": "brief explanation"}`;
+
+suite('🛡️ Security Classification', async () => {
+    const scenarios = JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, 'tool-use-scenarios.json'), 'utf8'));
+    for (const s of scenarios.security_scenarios) {
+        await test(`${s.name} → ${s.expected_classification}`, async () => {
+            const r = await llmCall([
+                { role: 'system', content: SECURITY_CLASSIFY_PROMPT },
+                { role: 'user', content: `Event description: ${s.description}` },
+            ], { maxTokens: 200, temperature: 0.1 });
+            const p = parseJSON(r.content);
+            assert(p.classification === s.expected_classification,
+                `Expected "${s.expected_classification}", got "${p.classification}"`);
+            assert(Array.isArray(p.tags), 'tags must be array');
+            return `${p.classification} [${p.tags.slice(0, 3).join(', ')}]`;
+        });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUITE 8: NARRATIVE SYNTHESIS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+suite('📝 Narrative Synthesis', async () => {
+    const scenarios = JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, 'tool-use-scenarios.json'), 'utf8'));
+    for (const s of scenarios.narrative_scenarios) {
+        await test(s.name, async () => {
+            const clipContext = s.clips.map((c, i) =>
+                `${i + 1}. [${c.camera}] ${c.time}: ${c.summary} | ID: ${c.id}`
+            ).join('\n');
+
+            const r = await llmCall([
+                { role: 'system', content: 'You are Aegis, a home security AI assistant. Summarize camera events naturally for the homeowner. Do NOT dump raw data or clip IDs — write a clear, human narrative. Group or order events as appropriate for the question.' },
+                { role: 'user', content: `Here are today\'s camera events:\n${clipContext}\n\nUser question: ${s.user_question}` },
+            ]);
+            const c = stripThink(r.content);
+
+            // Check must_include terms
+            const lower = c.toLowerCase();
+            for (const term of (s.must_include || [])) {
+                assert(lower.includes(term.toLowerCase()),
+                    `Missing required term: "${term}"`);
+            }
+
+            // Check must_not_include terms (raw data leaks)
+            for (const term of (s.must_not_include || [])) {
+                assert(!lower.includes(term.toLowerCase()),
+                    `Should not contain raw data: "${term}"`);
+            }
+
+            assert(c.length > 50, `Response too short: ${c.length} chars`);
+            return `${c.length} chars ✓`;
+        });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUITE 9: VLM SCENE ANALYSIS (optional)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 suite('📸 VLM Scene Analysis', async () => {
@@ -612,6 +665,9 @@ suite('📸 VLM Scene Analysis', async () => {
         parking: path.join(FIXTURES_DIR, 'frames', 'parking_lot_vehicle.png'),
         living_room: path.join(FIXTURES_DIR, 'frames', 'living_room_empty.png'),
         night: path.join(FIXTURES_DIR, 'frames', 'night_motion.png'),
+        package: path.join(FIXTURES_DIR, 'frames', 'doorstep_package.png'),
+        animal: path.join(FIXTURES_DIR, 'frames', 'backyard_animal.png'),
+        group: path.join(FIXTURES_DIR, 'frames', 'front_porch_group.png'),
     };
 
     async function vlmAnalyze(framePath, question) {
@@ -662,6 +718,34 @@ suite('📸 VLM Scene Analysis', async () => {
         const desc = await vlmAnalyze(frames.night, 'Describe what you see in this nighttime infrared security camera frame. Focus on any people or suspicious activity.');
         assert(desc.length > 20, 'Too short');
         return `${desc.length} chars`;
+    });
+
+    await test('Doorstep → detects package', async () => {
+        if (!fs.existsSync(frames.package)) { skip('Package frame', 'File missing'); return; }
+        const desc = await vlmAnalyze(frames.package, 'What do you see on this front doorstep? Is there a delivery or package?');
+        const lower = desc.toLowerCase();
+        assert(lower.includes('package') || lower.includes('box') || lower.includes('delivery') || lower.includes('parcel'),
+            `Expected package detection, got: "${desc.slice(0, 80)}"`);
+        return `${desc.length} chars, mentions package ✓`;
+    });
+
+    await test('Backyard → detects animal', async () => {
+        if (!fs.existsSync(frames.animal)) { skip('Animal frame', 'File missing'); return; }
+        const desc = await vlmAnalyze(frames.animal, 'Describe what you see in this backyard security camera frame. Focus on any animals or people.');
+        const lower = desc.toLowerCase();
+        assert(lower.includes('dog') || lower.includes('animal') || lower.includes('pet') || lower.includes('golden'),
+            `Expected animal detection, got: "${desc.slice(0, 80)}"`);
+        return `${desc.length} chars, mentions animal ✓`;
+    });
+
+    await test('Front porch → counts multiple people', async () => {
+        if (!fs.existsSync(frames.group)) { skip('Group frame', 'File missing'); return; }
+        const desc = await vlmAnalyze(frames.group, 'How many people are visible in this security camera frame? Describe who you see.');
+        const lower = desc.toLowerCase();
+        assert(lower.includes('two') || lower.includes('three') || lower.includes('2') || lower.includes('3') ||
+            lower.includes('people') || lower.includes('group') || lower.includes('several'),
+            `Expected multiple people, got: "${desc.slice(0, 80)}"`);
+        return `${desc.length} chars, multiple people ✓`;
     });
 });
 
