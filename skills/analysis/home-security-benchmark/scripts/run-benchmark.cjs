@@ -863,6 +863,7 @@ async function main() {
     index.push({
         file: path.basename(resultFile),
         model: results.model.name,
+        vlm: results.model.vlm || null,
         timestamp: results.timestamp,
         passed, failed, total,
         timeMs,

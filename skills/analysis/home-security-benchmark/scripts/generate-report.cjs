@@ -118,9 +118,11 @@ function buildHTML(latest, allResults) {
         const pct = r.total > 0 ? ((r.passed / r.total) * 100).toFixed(0) : 0;
         const ts = new Date(r.timestamp).toLocaleDateString() + ' ' + new Date(r.timestamp).toLocaleTimeString();
         const isCurrent = r.file === (allResults[allResults.length - 1]?.file);
+        const vlmModel = r.vlm || (r.data?.model?.vlm) || '';
+        const modelLabel = (r.model || '?') + (vlmModel ? `<br><span style="color:var(--muted);font-size:0.8em">VLM: ${vlmModel}</span>` : '');
         return `<tr${isCurrent ? ' class="current-run"' : ''}>
             <td>${ts}${isCurrent ? ' ⬅️' : ''}</td>
-            <td>${r.model || '?'}</td>
+            <td>${modelLabel}</td>
             <td>${r.passed}/${r.total}</td>
             <td>${pct}%</td>
             <td>${(r.timeMs / 1000).toFixed(1)}s</td>
