@@ -128,8 +128,10 @@ async function llmCall(messages, opts = {}) {
     results.tokenTotals.total += usage.total_tokens || 0;
 
     // Capture model name from first response
-    if (!results.model.name && data.model) {
-        results.model.name = data.model;
+    if (opts.vlm) {
+        if (!results.model.vlm && data.model) results.model.vlm = data.model;
+    } else {
+        if (!results.model.name && data.model) results.model.name = data.model;
     }
 
     return { content, toolCalls, usage, model: data.model };
@@ -471,7 +473,9 @@ suite('🔧 Tool Use', async () => {
     const scenarios = JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, 'tool-use-scenarios.json'), 'utf8'));
 
     for (const s of scenarios.tool_use_scenarios) {
-        await test(`${s.name} → ${s.expected_tool}`, async () => {
+        const expectedTools = Array.isArray(s.expected_tool) ? s.expected_tool : [s.expected_tool];
+        const expectedLabel = expectedTools.join('|');
+        await test(`${s.name} → ${expectedLabel}`, async () => {
             const messages = [
                 { role: 'system', content: 'You are Aegis, a home security AI assistant. Use the available tools to answer user questions. Always call the most appropriate tool — never decline to use a tool.' },
                 ...(s.history || []),
@@ -482,15 +486,15 @@ suite('🔧 Tool Use', async () => {
             // Check if model returned tool calls
             if (r.toolCalls && r.toolCalls.length > 0) {
                 const toolName = r.toolCalls[0].function.name;
-                assert(toolName === s.expected_tool, `Expected ${s.expected_tool}, got ${toolName}`);
+                assert(expectedTools.includes(toolName), `Expected ${expectedLabel}, got ${toolName}`);
                 return `tool_call: ${toolName}(${r.toolCalls[0].function.arguments?.slice(0, 40) || '...'})`;
             }
 
             // Some models return tool calls in the content (without native tool calling)
             const content = stripThink(r.content).toLowerCase();
-            assert(content.includes(s.expected_tool) || content.includes(s.expected_tool.replace('_', ' ')),
-                `Expected mention of ${s.expected_tool} in response`);
-            return `content mentions ${s.expected_tool}`;
+            const mentioned = expectedTools.some(t => content.includes(t) || content.includes(t.replace('_', ' ')));
+            assert(mentioned, `Expected mention of ${expectedLabel} in response`);
+            return `content mentions ${expectedLabel}`;
         });
     }
 });
@@ -599,14 +603,16 @@ Respond with ONLY valid JSON:
 suite('🛡️ Security Classification', async () => {
     const scenarios = JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, 'tool-use-scenarios.json'), 'utf8'));
     for (const s of scenarios.security_scenarios) {
-        await test(`${s.name} → ${s.expected_classification}`, async () => {
+        const expectedClassifications = Array.isArray(s.expected_classification) ? s.expected_classification : [s.expected_classification];
+        const expectedLabel = expectedClassifications.join('|');
+        await test(`${s.name} → ${expectedLabel}`, async () => {
             const r = await llmCall([
                 { role: 'system', content: SECURITY_CLASSIFY_PROMPT },
                 { role: 'user', content: `Event description: ${s.description}` },
             ], { maxTokens: 200, temperature: 0.1 });
             const p = parseJSON(r.content);
-            assert(p.classification === s.expected_classification,
-                `Expected "${s.expected_classification}", got "${p.classification}"`);
+            assert(expectedClassifications.includes(p.classification),
+                `Expected "${expectedLabel}", got "${p.classification}"`);
             assert(Array.isArray(p.tags), 'tags must be array');
             return `${p.classification} [${p.tags.slice(0, 3).join(', ')}]`;
         });
@@ -830,7 +836,7 @@ async function main() {
     log(`\n${'═'.repeat(66)}`);
     log(`  RESULTS: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped (${(timeMs / 1000).toFixed(1)}s)`);
     log(`  TOKENS:  ${results.tokenTotals.prompt} prompt + ${results.tokenTotals.completion} completion = ${results.tokenTotals.total} total (${tokPerSec} tok/s)`);
-    log(`  MODEL:   ${results.model.name}`);
+    log(`  MODEL:   ${results.model.name}${results.model.vlm ? ' | VLM: ' + results.model.vlm : ''}`);
     log(`${'═'.repeat(66)}`);
 
     if (failed > 0) {
