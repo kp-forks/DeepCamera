@@ -3,11 +3,26 @@ name: Home Security AI Benchmark
 description: LLM & VLM evaluation suite for home security AI applications
 version: 2.0.0
 category: analysis
+runtime: node
+entry: scripts/run-benchmark.cjs
+install: none
 ---
 
 # Home Security AI Benchmark
 
 Comprehensive benchmark suite evaluating LLM and VLM models on **131 tests** across **16 suites** — context preprocessing, tool use, security classification, prompt injection resistance, alert routing, knowledge injection, VLM-to-alert triage, and scene analysis.
+
+## Setup
+
+**No installation required.** This skill has zero external dependencies — it uses only Node.js built-in modules. No `npm install` needed.
+
+Entry script: `scripts/run-benchmark.cjs`
+
+### Verification
+
+```bash
+node scripts/run-benchmark.cjs --help
+```
 
 ## Quick Start
 
