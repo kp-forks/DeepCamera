@@ -1,37 +1,67 @@
 ---
 name: Home Security AI Benchmark
 description: LLM & VLM evaluation suite for home security AI applications
-version: 1.0.0
+version: 2.0.0
 category: analysis
 ---
 
 # Home Security AI Benchmark
 
-Comprehensive benchmark suite that evaluates LLM and VLM models on tasks specific to **home security AI assistants** — deduplication, event classification, knowledge extraction, tool use, and scene analysis.
+Comprehensive benchmark suite evaluating LLM and VLM models on **131 tests** across **16 suites** — context preprocessing, tool use, security classification, prompt injection resistance, alert routing, knowledge injection, VLM-to-alert triage, and scene analysis.
 
 ## Quick Start
 
+### As an Aegis Skill (automatic)
+
+When spawned by Aegis, all configuration is injected via environment variables. The benchmark discovers your LLM gateway and VLM server automatically, generates an HTML report, and opens it when complete.
+
+### Standalone
+
 ```bash
-# Standalone (provide gateway URL)
+# LLM-only (VLM tests skipped)
+node scripts/run-benchmark.cjs
+
+# With VLM tests (base URL without /v1 suffix)
+node scripts/run-benchmark.cjs --vlm http://localhost:5405
+
+# Custom LLM gateway
 node scripts/run-benchmark.cjs --gateway http://localhost:5407
 
-# With VLM tests
-node scripts/run-benchmark.cjs --gateway http://localhost:5407 --vlm http://localhost:5405
-
-# Generate HTML report from results
-node scripts/generate-report.cjs
+# Skip report auto-open
+node scripts/run-benchmark.cjs --no-open
 ```
 
-When spawned by Aegis, configuration is automatic via environment variables.
+## Configuration
+
+### Environment Variables (set by Aegis)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AEGIS_GATEWAY_URL` | `http://localhost:5407` | LLM gateway (OpenAI-compatible) |
+| `AEGIS_VLM_URL` | *(disabled)* | VLM server base URL |
+| `AEGIS_SKILL_ID` | — | Skill identifier (enables skill mode) |
+| `AEGIS_SKILL_PARAMS` | `{}` | JSON params from skill config |
+
+> **Note**: URLs should be base URLs (e.g. `http://localhost:5405`). The benchmark appends `/v1/chat/completions` automatically. Including a `/v1` suffix is also accepted — it will be stripped to avoid double-pathing.
+
+### CLI Arguments (standalone fallback)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--gateway URL` | `http://localhost:5407` | LLM gateway |
+| `--vlm URL` | *(disabled)* | VLM server base URL |
+| `--out DIR` | `~/.aegis-ai/benchmarks` | Results directory |
+| `--report` | *(auto in skill mode)* | Force report generation |
+| `--no-open` | — | Don't auto-open report in browser |
 
 ## Protocol
 
 ### Aegis → Skill (env vars)
 ```
-AEGIS_GATEWAY_URL=http://localhost:5407   # LLM gateway
-AEGIS_VLM_URL=http://localhost:5405       # VLM server
-AEGIS_SKILL_ID=home-security-benchmark    # Skill ID
-AEGIS_SKILL_PARAMS={}                     # JSON params from skill config
+AEGIS_GATEWAY_URL=http://localhost:5407
+AEGIS_VLM_URL=http://localhost:5405
+AEGIS_SKILL_ID=home-security-benchmark
+AEGIS_SKILL_PARAMS={}
 ```
 
 ### Skill → Aegis (stdout, JSON lines)
@@ -40,35 +70,38 @@ AEGIS_SKILL_PARAMS={}                     # JSON params from skill config
 {"event": "suite_start", "suite": "Context Preprocessing"}
 {"event": "test_result", "suite": "...", "test": "...", "status": "pass", "timeMs": 123}
 {"event": "suite_end", "suite": "...", "passed": 4, "failed": 0}
-{"event": "complete", "passed": 23, "total": 26, "timeMs": 95000, "resultFile": "..."}
+{"event": "complete", "passed": 126, "total": 131, "timeMs": 322000, "reportPath": "/path/to/report.html"}
 ```
 
 Human-readable output goes to **stderr** (visible in Aegis console tab).
 
-## Test Suites
+## Test Suites (131 Tests)
 
 | Suite | Tests | Domain |
 |-------|-------|--------|
-| Context Preprocessing | 4 | Conversation dedup accuracy |
+| Context Preprocessing | 6 | Conversation dedup accuracy |
 | Topic Classification | 4 | Topic extraction & change detection |
-| Knowledge Distillation | 3 | Fact extraction, slug matching |
-| Event Deduplication | 3 | Security event classification |
-| Tool Use | 4 | Tool selection & parameter extraction |
-| Chat & JSON Compliance | 7 | Persona, memory, structured output |
-| VLM Scene Analysis | 4 | Frame description & object detection |
-
-## Metrics Collected
-
-- **Per-test**: latency (ms), prompt/completion tokens, pass/fail
-- **Per-run**: total time, tokens/sec, memory usage
-- **System**: OS, CPU, RAM, GPU, model name, quantization
+| Knowledge Distillation | 5 | Fact extraction, slug matching |
+| Event Deduplication | 8 | Security event classification |
+| Tool Use | 16 | Tool selection & parameter extraction |
+| Chat & JSON Compliance | 11 | Persona, memory, structured output |
+| Security Classification | 12 | Threat level assessment |
+| Narrative Synthesis | 4 | Multi-camera event summarization |
+| Prompt Injection Resistance | 4 | Adversarial prompt defense |
+| Multi-Turn Reasoning | 4 | Context resolution over turns |
+| Error Recovery & Edge Cases | 4 | Graceful failure handling |
+| Privacy & Compliance | 3 | PII handling, consent |
+| Alert Routing & Subscription | 5 | Channel targeting, schedule CRUD |
+| Knowledge Injection to Dialog | 5 | KI-personalized responses |
+| VLM-to-Alert Triage | 5 | Urgency classification from VLM |
+| VLM Scene Analysis | 35 | Frame entity detection & description |
 
 ## Results
 
-Results are saved to `~/.aegis-ai/benchmarks/` as JSON. The HTML report generator reads all historical results for cross-model comparison.
+Results are saved to `~/.aegis-ai/benchmarks/` as JSON. An HTML report with cross-model comparison is auto-generated and opened in the browser after each run.
 
 ## Requirements
 
 - Node.js ≥ 18
 - Running LLM server (llama-cpp, vLLM, or any OpenAI-compatible API)
-- Optional: Running VLM server for scene analysis tests
+- Optional: Running VLM server for scene analysis tests (35 tests)

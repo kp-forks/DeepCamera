@@ -37,6 +37,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execSync } = require('child_process');
 
 // ─── Config: Aegis env vars → CLI args → defaults ────────────────────────────
 
@@ -51,7 +52,7 @@ function getArg(name, defaultVal) {
 const GATEWAY_URL = process.env.AEGIS_GATEWAY_URL || getArg('gateway', 'http://localhost:5407');
 const VLM_URL = process.env.AEGIS_VLM_URL || getArg('vlm', '');
 const RESULTS_DIR = getArg('out', path.join(os.homedir(), '.aegis-ai', 'benchmarks'));
-const AUTO_REPORT = args.includes('--report');
+const NO_OPEN = args.includes('--no-open');
 const TIMEOUT_MS = 30000;
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
 const IS_SKILL_MODE = !!process.env.AEGIS_SKILL_ID;
@@ -1724,16 +1725,26 @@ async function main() {
     });
     fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
 
-    // Auto-generate report
+    // Always generate report (skip only on explicit --no-open with no --report flag)
     let reportPath = null;
-    if (AUTO_REPORT) {
-        log('\n  Generating HTML report...');
-        try {
-            const reportScript = path.join(__dirname, 'generate-report.cjs');
-            reportPath = require(reportScript).generateReport(RESULTS_DIR);
-        } catch (err) {
-            log(`  ⚠️  Report generation failed: ${err.message}`);
+    log('\n  Generating HTML report...');
+    try {
+        const reportScript = path.join(__dirname, 'generate-report.cjs');
+        reportPath = require(reportScript).generateReport(RESULTS_DIR);
+        log(`  ✅ Report: ${reportPath}`);
+
+        // Auto-open in browser (macOS: open, Linux: xdg-open)
+        if (!NO_OPEN && reportPath) {
+            try {
+                const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+                execSync(`${openCmd} "${reportPath}"`, { stdio: 'ignore' });
+                log(`  📂 Opened in browser`);
+            } catch {
+                log(`  ℹ️  Open manually: ${reportPath}`);
+            }
         }
+    } catch (err) {
+        log(`  ⚠️  Report generation failed: ${err.message}`);
     }
 
     // Emit completion event (Aegis listens for this)
