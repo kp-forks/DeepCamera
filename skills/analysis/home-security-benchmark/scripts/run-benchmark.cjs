@@ -48,6 +48,31 @@ function getArg(name, defaultVal) {
     return args[idx + 1] || defaultVal;
 }
 
+// ─── Help ─────────────────────────────────────────────────────────────────────
+if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Home Security AI Benchmark Suite • DeepCamera / SharpAI
+
+Usage: node scripts/run-benchmark.cjs [options]
+
+Options:
+  --gateway URL   LLM gateway URL           (default: http://localhost:5407)
+  --vlm URL       VLM server base URL       (disabled if omitted)
+  --out DIR       Results output directory   (default: ~/.aegis-ai/benchmarks)
+  --no-open       Don't auto-open report in browser
+  -h, --help      Show this help message
+
+Environment Variables (set by Aegis):
+  AEGIS_GATEWAY_URL   LLM gateway URL
+  AEGIS_VLM_URL       VLM server base URL
+  AEGIS_SKILL_ID      Skill identifier (enables skill mode)
+  AEGIS_SKILL_PARAMS  JSON params from skill config
+
+Tests: 131 total (96 LLM + 35 VLM) across 16 suites
+    `.trim());
+    process.exit(0);
+}
+
 // Aegis provides config via env vars; CLI args are fallback for standalone
 const GATEWAY_URL = process.env.AEGIS_GATEWAY_URL || getArg('gateway', 'http://localhost:5407');
 const VLM_URL = process.env.AEGIS_VLM_URL || getArg('vlm', '');
