@@ -1,8 +1,8 @@
 <div align="center">
 <h1>DeepCamera</h1>
-<h3>Edge AI for Smart Camera Systems</h3>
+<h3>Open-Source AI Camera Skills Platform</h3>
 
-<p><b>Transform any camera into an intelligent monitoring system with state-of-the-art AI capabilities</b></p>
+<p><b>Turn any camera into an AI-powered security guard that watches, understands, and protects your home — locally or in the cloud.</b></p>
 
 <p>
     <a href="https://join.slack.com/t/sharpai/shared_invite/zt-1nt1g0dkg-navTKx6REgeq5L3eoC1Pqg">
@@ -29,9 +29,9 @@
 
 ### 🛡️ [SharpAI Aegis](https://www.sharpai.org) — Your AI Security Camera Agent
 
-**An LLM-powered agent that watches your cameras, understands what's happening, remembers patterns, and guards your home — using local or cloud AI.**
+**An LLM-powered agent that watches your cameras, understands what's happening, remembers patterns, and guards your home.**
 
-[SharpAI Aegis](https://www.sharpai.org) turns DeepCamera's open-source AI camera skills into an autonomous security guard. It uses local VLM (Qwen, DeepSeek, SmolVLM, LLaVA) to analyze your camera feeds, LLM to reason about what it sees, and agentic memory to learn your home. Talk to it from your phone via Telegram, Discord, or Slack — ask what happened, get smart alerts, or generate AI video recaps.
+DeepCamera's open-source skills give your cameras AI — VLM scene analysis, object detection, person re-identification, all running locally with models like Qwen, DeepSeek, SmolVLM, and LLaVA. To orchestrate them into a complete security system, [SharpAI Aegis](https://www.sharpai.org) connects the skills to your cameras, adds LLM reasoning and persistent memory, and alerts you via Telegram, Discord, or Slack.
 
 - 🧠 **Watches & Understands** — VLM scene analysis on every camera event
 - 🗃️ **Remembers** — Agentic memory learns your household patterns
@@ -39,6 +39,8 @@
 - 🗣️ **Talks** — Chat with your cameras via Telegram, Discord, Slack
 - 🔌 **Pluggable** — Every skill adds a new ability via [open protocol](docs/skill-development.md)
 - 🏠 **Local-first** — Runs on your Mac Mini or AI PC. Cloud (OpenAI, Google, Anthropic) optional.
+
+Built on DeepCamera's proven open-source facial recognition, person re-identification (RE-ID), fall detection, and CCTV/NVR surveillance monitoring — the skill catalog extends these machine learning capabilities with modern AI: VLM scene understanding, SAM2 segmentation, DINOv3 visual grounding, and more. All inference runs locally for maximum privacy.
 
 [**📦 Download SharpAI Aegis →**](https://www.sharpai.org)
 
@@ -61,29 +63,9 @@
 
 ---
 
-## 🎯 Overview
-
-DeepCamera is an **open-source AI camera skills platform** that transforms any camera — CCTV, IP camera, or webcam — into an intelligent monitoring system. It provides a growing catalog of pluggable AI skills — from real-time object detection and person re-identification to VLM scene analysis, interactive segmentation, and smart home automation.
-
-Each skill is a self-contained module with its own model, parameters, and communication protocol. Skills are installed, configured, and orchestrated through [SharpAI Aegis](https://www.sharpai.org) — the desktop companion that adds LLM-powered setup, agent chat, and smart alerts via Telegram, Discord, and Slack.
-
-Building on DeepCamera's proven open-source facial recognition, person re-identification (RE-ID), fall detection, and CCTV/NVR surveillance monitoring, the skill catalog extends these machine learning capabilities with modern AI — from VLM scene understanding to SAM2 segmentation and DINOv3 visual grounding. All inference runs locally on your device for maximum privacy. Quality is verified by **HomeSec-Bench**, our 131-test security AI benchmark.
-
-### Core Capabilities
-
-- 🔍 **Detection** — YOLO object detection, DINOv3 open-vocabulary grounding, person re-identification (ReID)
-- 🧠 **Analysis** — VLM scene understanding of recorded clips, SAM2 interactive segmentation
-- 🎨 **Transformation** — Depth Anything v2 real-time depth maps
-- 🏷️ **Annotation** — AI-assisted dataset creation with COCO export
-- 📷 **Camera Providers** — Eufy, Reolink, Tapo (RTSP/ONVIF)
-- 📺 **Streaming** — Multi-camera RTSP → WebRTC via go2rtc
-- 💬 **Channels** — Matrix, LINE, Signal messaging for the Clawdbot agent
-- ⚡ **Automation** — MQTT, webhooks, Home Assistant triggers
-- 🏠 **Integrations** — Bidirectional Home Assistant bridge
-
 ## 🧩 Skill Catalog
 
-Each skill gives your AI camera agent a new ability — detection, analysis, camera integration, messaging, and automation work together so it can see, think, and act. Every skill lives in [`skills/`](skills/) with a `SKILL.md` manifest, `requirements.txt`, and working Python script. See the [Skill Development Guide](docs/skill-development.md) and [Platform Parameters](docs/skill-params.md) to build your own.
+Each skill is a self-contained module with its own model, parameters, and [communication protocol](docs/skill-development.md). They give your AI camera agent new abilities — detection, analysis, camera integration, messaging, and automation work together so it can see, think, and act. See the [Skill Development Guide](docs/skill-development.md) and [Platform Parameters](docs/skill-params.md) to build your own.
 
 | Category | Skill | What It Does |
 |----------|-------|--------------|
