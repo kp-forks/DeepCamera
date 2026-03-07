@@ -3,6 +3,7 @@ name: yolo-detection-2026
 description: "YOLO 2026 — state-of-the-art real-time object detection"
 version: 1.0.0
 icon: assets/icon.png
+entry: scripts/detect.py
 
 parameters:
   - name: model_size
