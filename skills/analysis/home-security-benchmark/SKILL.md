@@ -5,7 +5,7 @@ version: 2.0.0
 category: analysis
 runtime: node
 entry: scripts/run-benchmark.cjs
-install: none
+install: npm
 ---
 
 # Home Security AI Benchmark
@@ -14,7 +14,7 @@ Comprehensive benchmark suite evaluating LLM and VLM models on **131 tests** acr
 
 ## Setup
 
-**No installation required.** This skill has zero external dependencies — it uses only Node.js built-in modules. No `npm install` needed.
+**Requires `npm install`.** This skill has a `package.json` with dependencies (e.g. `openai` SDK). The deployment agent should check for `package.json` and run `npm install` in the skill directory before launching.
 
 Entry script: `scripts/run-benchmark.cjs`
 
@@ -53,7 +53,13 @@ node scripts/run-benchmark.cjs --no-open
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AEGIS_GATEWAY_URL` | `http://localhost:5407` | LLM gateway (OpenAI-compatible) |
+| `AEGIS_LLM_URL` | — | Direct llama-server LLM endpoint |
+| `AEGIS_LLM_API_TYPE` | `openai` | LLM provider type (builtin, openai, etc.) |
+| `AEGIS_LLM_MODEL` | — | LLM model name |
+| `AEGIS_LLM_API_KEY` | — | API key for cloud LLM providers |
+| `AEGIS_LLM_BASE_URL` | — | Cloud provider base URL (e.g. `https://api.openai.com/v1`) |
 | `AEGIS_VLM_URL` | *(disabled)* | VLM server base URL |
+| `AEGIS_VLM_MODEL` | — | Loaded VLM model ID |
 | `AEGIS_SKILL_ID` | — | Skill identifier (enables skill mode) |
 | `AEGIS_SKILL_PARAMS` | `{}` | JSON params from skill config |
 
@@ -129,5 +135,6 @@ Results are saved to `~/.aegis-ai/benchmarks/` as JSON. An HTML report with cros
 ## Requirements
 
 - Node.js ≥ 18
-- Running LLM server (llama-cpp, vLLM, or any OpenAI-compatible API)
+- `npm install` (for `openai` SDK dependency)
+- Running LLM server (llama-server, OpenAI API, or any OpenAI-compatible endpoint)
 - Optional: Running VLM server for scene analysis tests (35 tests)
