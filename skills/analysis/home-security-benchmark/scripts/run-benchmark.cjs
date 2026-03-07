@@ -73,18 +73,19 @@ Tests: 131 total (96 LLM + 35 VLM) across 16 suites
     process.exit(0);
 }
 
+// Parse skill parameters if running as Aegis skill
+let skillParams = {};
+try { skillParams = JSON.parse(process.env.AEGIS_SKILL_PARAMS || '{}'); } catch { }
+
 // Aegis provides config via env vars; CLI args are fallback for standalone
 const GATEWAY_URL = process.env.AEGIS_GATEWAY_URL || getArg('gateway', 'http://localhost:5407');
 const VLM_URL = process.env.AEGIS_VLM_URL || getArg('vlm', '');
 const RESULTS_DIR = getArg('out', path.join(os.homedir(), '.aegis-ai', 'benchmarks'));
-const NO_OPEN = args.includes('--no-open');
+const IS_SKILL_MODE = !!process.env.AEGIS_SKILL_ID;
+const NO_OPEN = args.includes('--no-open') || skillParams.noOpen || false;
+const TEST_MODE = skillParams.mode || 'full';
 const TIMEOUT_MS = 30000;
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
-const IS_SKILL_MODE = !!process.env.AEGIS_SKILL_ID;
-
-// Parse skill parameters if running as Aegis skill
-let skillParams = {};
-try { skillParams = JSON.parse(process.env.AEGIS_SKILL_PARAMS || '{}'); } catch { }
 
 // ─── Skill Protocol: JSON lines on stdout, human text on stderr ──────────────
 
@@ -1706,6 +1707,24 @@ async function main() {
     // Emit ready event (Aegis listens for this)
     emit({ event: 'ready', model: results.model.name, system: results.system.cpu });
 
+    // Filter suites by test mode (from AEGIS_SKILL_PARAMS or default 'full')
+    if (TEST_MODE !== 'full') {
+        const isVlmSuite = (name) => name.includes('VLM Scene') || name.includes('📸');
+        const originalCount = suites.length;
+        if (TEST_MODE === 'llm') {
+            // Remove VLM image-analysis suites (VLM-to-Alert Triage stays — it's LLM-based text triage)
+            for (let i = suites.length - 1; i >= 0; i--) {
+                if (isVlmSuite(suites[i].name)) suites.splice(i, 1);
+            }
+        } else if (TEST_MODE === 'vlm') {
+            // Keep only VLM image-analysis suites (requires VLM URL)
+            for (let i = suites.length - 1; i >= 0; i--) {
+                if (!isVlmSuite(suites[i].name)) suites.splice(i, 1);
+            }
+        }
+        log(`  Filter:   ${TEST_MODE} mode → ${suites.length}/${originalCount} suites selected`);
+    }
+
     const suiteStart = Date.now();
     await runSuites();
     results.totals.timeMs = Date.now() - suiteStart;
@@ -1806,9 +1825,14 @@ async function main() {
     process.exit(failed > 0 ? 1 : 0);
 }
 
-main().catch(err => {
-    log(`Fatal: ${err.message}`);
-    emit({ event: 'error', message: err.message });
-    process.exit(1);
-});
+// Only run when executed directly (not when require()'d for syntax/import checks)
+if (require.main === module) {
+    main().catch(err => {
+        log(`Fatal: ${err.message}`);
+        emit({ event: 'error', message: err.message });
+        process.exit(1);
+    });
+}
+
+module.exports = { main };
 

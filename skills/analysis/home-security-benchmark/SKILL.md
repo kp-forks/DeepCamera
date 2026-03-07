@@ -59,6 +59,17 @@ node scripts/run-benchmark.cjs --no-open
 
 > **Note**: URLs should be base URLs (e.g. `http://localhost:5405`). The benchmark appends `/v1/chat/completions` automatically. Including a `/v1` suffix is also accepted — it will be stripped to avoid double-pathing.
 
+### User Configuration (config.yaml)
+
+This skill includes a [`config.yaml`](config.yaml) that defines user-configurable parameters. Aegis parses this at install time and renders a config panel in the UI. Values are delivered via `AEGIS_SKILL_PARAMS`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `mode` | select | `llm` | Which suites to run: `llm` (96 tests), `vlm` (35 tests), or `full` (131 tests) |
+| `noOpen` | boolean | `false` | Skip auto-opening the HTML report in browser |
+
+Platform parameters like `AEGIS_GATEWAY_URL` and `AEGIS_VLM_URL` are auto-injected by Aegis — they are **not** in `config.yaml`. See [Aegis Skill Platform Parameters](../../../docs/skill-params.md) for the full platform contract.
+
 ### CLI Arguments (standalone fallback)
 
 | Argument | Default | Description |

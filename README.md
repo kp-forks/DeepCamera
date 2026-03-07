@@ -1,8 +1,7 @@
 <div align="center">
-<h1>DeepCamera</h1>
-<h3>Edge AI for Smart Camera Systems</h3>
+<h1>DeepCamera — Open-Source AI Camera Skills Platform</h1>
 
-<p><b>Transform any camera into an intelligent monitoring system with state-of-the-art AI capabilities</b></p>
+<p>DeepCamera's open-source skills give your cameras AI — VLM scene analysis, object detection, person re-identification, all running locally with models like Qwen, DeepSeek, SmolVLM, and LLaVA. Built on proven facial recognition, RE-ID, fall detection, and CCTV/NVR surveillance monitoring, the skill catalog extends these machine learning capabilities with modern AI. All inference runs locally for maximum privacy.</p>
 
 <p>
     <a href="https://join.slack.com/t/sharpai/shared_invite/zt-1nt1g0dkg-navTKx6REgeq5L3eoC1Pqg">
@@ -25,60 +24,9 @@
 
 ---
 
-<div align="center">
-
-### 🛡️ Introducing [SharpAI Aegis](https://www.sharpai.org) — Desktop App for DeepCamera
-
-**Use DeepCamera's AI skills through a desktop app with LLM-powered setup, agent chat, and smart alerts — connected to your mobile via Discord / Telegram / Slack.**
-
-[SharpAI Aegis](https://www.sharpai.org) is the desktop companion for DeepCamera. It uses LLM to automatically set up your environment, configure camera skills, and manage the full AI pipeline — no manual Docker or CLI required. It also adds an intelligent agent layer: persistent memory, agentic chat with your cameras, AI video generation, voice (TTS), and conversational messaging via Discord / Telegram / Slack.
-
-[**📦 Download SharpAI Aegis**](https://www.sharpai.org)
-
-</div>
-
-<table>
-<tr>
-<td width="50%">
-<p align="center"><b>Browse & Run VLMs Locally from HuggingFace</b></p>
-<img src="screenshots/aegis-vlm-browser.png" alt="SharpAI Aegis — Browse and download vision language models from HuggingFace" width="100%">
-<p align="center"><em>Download and run SmolVLM2, Qwen-VL, LFM2.5, LLaVA, MiniCPM-V directly on your machine. Even a Mac M1 Mini 8GB works.</em></p>
-</td>
-<td width="50%">
-<p align="center"><b>Chat with your AI Security Agent</b></p>
-<img src="screenshots/aegis-chat-agent.png" alt="SharpAI Aegis — Ask your agent what happened and get real answers" width="100%">
-<p align="center"><em>Ask "anyone entering the room?" — Aegis searches your footage and gives you a real answer with timestamps and clips.</em></p>
-</td>
-</tr>
-</table>
-
----
-
----
-
-## 🎯 Overview
-
-DeepCamera is an **open-source AI skill platform** that transforms any camera into an intelligent monitoring system. It provides a growing catalog of pluggable AI skills — from real-time object detection and person re-identification to VLM scene analysis, interactive segmentation, and smart home automation.
-
-Each skill is a self-contained module with its own model, parameters, and communication protocol. Skills are installed, configured, and orchestrated through [SharpAI Aegis](https://www.sharpai.org) — the desktop companion that adds LLM-powered setup, agent chat, and smart alerts.
-
-Building on DeepCamera's proven open-source facial recognition, person re-identification (RE-ID), fall detection, and CCTV/NVR surveillance monitoring, the skill catalog extends these machine learning capabilities with modern AI — from VLM scene understanding to SAM2 segmentation and DINOv3 visual grounding. All inference runs locally on your device for maximum privacy.
-
-### Core Capabilities
-
-- 🔍 **Detection** — YOLO object detection, DINOv3 open-vocabulary grounding, person re-identification (ReID)
-- 🧠 **Analysis** — VLM scene understanding of recorded clips, SAM2 interactive segmentation
-- 🎨 **Transformation** — Depth Anything v2 real-time depth maps
-- 🏷️ **Annotation** — AI-assisted dataset creation with COCO export
-- 📷 **Camera Providers** — Eufy, Reolink, Tapo (RTSP/ONVIF)
-- 📺 **Streaming** — Multi-camera RTSP → WebRTC via go2rtc
-- 💬 **Channels** — Matrix, LINE, Signal messaging for the Clawdbot agent
-- ⚡ **Automation** — MQTT, webhooks, Home Assistant triggers
-- 🏠 **Integrations** — Bidirectional Home Assistant bridge
-
 ## 🧩 Skill Catalog
 
-Every skill lives in [`skills/`](skills/) with a `SKILL.md` manifest, `requirements.txt`, and working Python script. See the [Skill Development Guide](docs/skill-development.md) to build your own.
+Each skill is a self-contained module with its own model, parameters, and [communication protocol](docs/skill-development.md). See the [Skill Development Guide](docs/skill-development.md) and [Platform Parameters](docs/skill-params.md) to build your own.
 
 | Category | Skill | What It Does |
 |----------|-------|--------------|
@@ -105,389 +53,112 @@ Every skill lives in [`skills/`](skills/) with a `SKILL.md` manifest, `requireme
 - [ ] **Custom skill packaging** — community-contributed skills via GitHub
 - [ ] **GPU-optimized containers** — one-click Docker deployment per skill
 
-## 🚀 Applications
+## 🚀 Getting Started with [SharpAI Aegis](https://www.sharpai.org)
 
-### 1. Person Recognition for Intruder Detection
-Advanced intruder detection using self-supervised person recognition (REID) technology. [Source code](https://github.com/SharpAI/DeepCamera/blob/master/src/yolov7_reid/src/detector_cpu.py)
+The easiest way to run DeepCamera's AI skills. Aegis connects everything — cameras, models, skills, and you.
 
-**Key Technologies:**
-- Yolov7 Tiny (COCO pretrained) for person detection
-- FastReID ResNet50 for feature extraction
-- Milvus vector database for self-supervised learning
-- Integration with Home-Assistant for smart home automation
+- 📷 **Connect cameras in seconds** — add RTSP/ONVIF cameras, webcams, or iPhone cameras for a quick test
+- 🤖 **Built-in local LLM & VLM** — llama-server included, no separate setup needed
+- 📦 **One-click skill deployment** — install skills from the catalog with AI-assisted troubleshooting
+- 🔽 **One-click HuggingFace downloads** — browse and run Qwen, DeepSeek, SmolVLM, LLaVA, MiniCPM-V
+- 📊 **Find the best VLM for your machine** — benchmark models on your own hardware with HomeSec-Bench
+- 💬 **Talk to your guard** — via Telegram, Discord, or Slack. Ask what happened, tell it what to watch for, get AI-reasoned answers with footage.
 
-```bash
-pip3 install sharpai-hub
-sharpai-cli yolov7_reid start
-```
+<div align="center">
 
-### 2. Local Facial Recognition
-Secure, locally-deployed facial recognition system for intruder detection. All data stays on your device.
-```bash
-sharpai-cli local_deepcamera start
-```
+[**📦 Download SharpAI Aegis →**](https://www.sharpai.org)
 
-### 3. Cloud-Based Facial Recognition
-Free cloud-powered facial recognition system:
-```bash
-sharpai-cli login
-sharpai-cli device register
-sharpai-cli deepcamera start
-```
+</div>
 
-### 4. Screen Monitor for Child Safety
-Monitor laptop screens using AI-powered feature extraction and local storage. Perfect for ensuring online safety for kids and teens.
-```bash
-sharpai-cli screen_monitor start
-```
+<table>
+<tr>
+<td width="50%">
+<p align="center"><b>Run Local VLMs from HuggingFace — Even on Mac Mini 8GB</b></p>
+<img src="screenshots/aegis-vlm-browser.png" alt="SharpAI Aegis — Browse and run local VLM models for AI camera video analysis" width="100%">
+<p align="center"><em>Download and run SmolVLM2, Qwen-VL, LLaVA, MiniCPM-V locally. Your AI security camera agent sees through these eyes.</em></p>
+</td>
+<td width="50%">
+<p align="center"><b>Chat with Your AI Camera Agent</b></p>
+<img src="screenshots/aegis-chat-agent.png" alt="SharpAI Aegis — LLM-powered agentic security camera chat" width="100%">
+<p align="center"><em>"Who was at the door?" — Your agent searches footage, reasons about what happened, and answers with timestamps and clips.</em></p>
+</td>
+</tr>
+</table>
 
-### 5. Basic Person Detection
-Simple and efficient person detection system:
-```bash
-sharpai-cli yolov7_person_detector start
-```
 
-## 📦 Installation Guide
+## 📊 HomeSec-Bench — How Secure Is Your Local AI?
 
-### Prerequisites
-- Docker (Latest version)
-- Python (v3.6 - v3.10)
-- Internet connection for initial setup
+**HomeSec-Bench** is a 131-test security benchmark that measures how well your local AI performs as a security guard. It tests what matters: Can it detect a person in fog? Classify a break-in vs. a delivery? Resist prompt injection? Route alerts correctly at 3 AM?
 
-### Quick Start
-1. Install SharpAI-Hub:
-```bash
-pip3 install sharpai-hub
-```
+Run it on your own hardware to know exactly where your setup stands.
 
-2. Start desired application (example using yolov7_reid):
-```bash
-sharpai-cli yolov7_reid start
-```
+| Area | Tests | What's at Stake |
+|------|-------|-----------------|
+| Scene Understanding | 35 | Person detection in fog, rain, night IR, sun glare |
+| Security Classification | 12 | Telling a break-in from a raccoon |
+| Tool Use & Reasoning | 16 | Correct tool calls with accurate parameters |
+| Prompt Injection Resistance | 4 | Adversarial attacks that try to disable your guard |
+| Privacy Compliance | 3 | PII leak prevention, illegal surveillance refusal |
+| Alert Routing | 5 | Right message, right channel, right time |
 
-### Important URLs
-- Docker Desktop UI: http://localhost:8000
-- Home-Assistant: http://localhost:8123
-- Labelstudio: http://localhost:8080
+### Results: Local vs. Cloud vs. Hybrid
+
+<a href="docs/paper/home-security-benchmark.pdf"><img src="screenshots/homesec-bench-results.png" alt="HomeSec-Bench benchmark results — local Qwen 4B vs cloud GPT-5.2 vs hybrid" width="100%"></a>
+
+Running on a **Mac M1 Mini 8GB**: local Qwen3.5-4B scores **39/54** (72%), cloud GPT-5.2 scores **46/48** (96%), and the hybrid config reaches **53/54** (98%). All 35 VLM test images are **AI-generated** — no real footage, fully privacy-compliant.
+
+📄 [Read the Paper](docs/paper/home-security-benchmark.pdf) · 🔬 [Run It Yourself](skills/analysis/home-security-benchmark/) · 📋 [Test Scenarios](skills/analysis/home-security-benchmark/fixtures/)
+
+---
+
+## 📦 More Applications
 
 <details>
-<summary><h3>📱 Supported Devices</h3></summary>
+<summary><b>Legacy Applications (SharpAI-Hub CLI)</b></summary>
 
-#### Edge AI Hardware
-- Nvidia Jetson
-  - Nano (ReComputer j1010)
-  - Xavier AGX
-- Single Board Computers
-  - Raspberry Pi 4GB/8GB
-- Desktop/Laptop
-  - MacOS
-  - Windows
-  - Ubuntu
-- MCU Cameras
-  - ESP32 CAM
-  - ESP32-S3-Eye
+These applications use the `sharpai-cli` Docker-based workflow.
+For the modern experience, use [SharpAI Aegis](https://www.sharpai.org).
 
-#### Compatible Cameras
-- RTSP Cameras (Lorex/Amrest/DoorBell)
-- Blink Camera
-- IMOU Camera
-- Google Nest (Indoor/Outdoor)
+| Application | CLI Command | Platforms |
+|-------------|-------------|-----------|
+| Person Recognition (ReID) | `sharpai-cli yolov7_reid start` | Jetson/Windows/Linux/macOS |
+| Person Detector | `sharpai-cli yolov7_person_detector start` | Jetson/Windows/Linux/macOS |
+| Facial Recognition | `sharpai-cli deepcamera start` | Jetson/Windows/Linux/macOS |
+| Local Facial Recognition | `sharpai-cli local_deepcamera start` | Windows/Linux/macOS |
+| Screen Monitor | `sharpai-cli screen_monitor start` | Windows/Linux/macOS |
+| Parking Monitor | `sharpai-cli yoloparking start` | Jetson AGX |
+| Fall Detection | `sharpai-cli falldetection start` | Jetson AGX |
+
+📖 [Detailed setup guides →](docs/legacy-applications.md)
+
+#### Tested Devices
+- **Edge**: Jetson Nano, Xavier AGX, Raspberry Pi 4/8GB
+- **Desktop**: macOS, Windows 11, Ubuntu 20.04
+- **MCU**: ESP32 CAM, ESP32-S3-Eye
+
+#### Tested Cameras
+- RTSP: DaHua, Lorex, Amcrest
+- Cloud: Blink, Nest (via Home Assistant)
+- Mobile: IP Camera Lite (iOS)
+
 </details>
 
-# Application 1: Self-supervised person recognition(REID) for intruder detection
-SharpAI yolov7_reid is an open source python application leverages AI technologies to detect intruder with traditional surveillance camera. Source code is [here](https://github.com/SharpAI/DeepCamera/blob/master/src/yolov7_reid/src/detector_cpu.py)
-It leverages Yolov7 as person detector, FastReID for person feature extraction, Milvus the local vector database for self-supervised learning to identity unseen person, Labelstudio to host image locally and for further usage such as label data and train your own classifier. It also integrates with Home-Assistant to empower smart home with AI technology. 
-In Simple terms yolov7_reid is a person detector.
+---
 
-
-- <details>
-  <summary>Machine learning technologies</summary>
-
-  - Yolov7 Tiny, pretrained from COCO dataset
-  - FastReID ResNet50
-  - Vector Database Milvus for self-supervised learning
-  </details>
-- <details>
-  <summary>Supported Devices</summary>
-
-  - Nvidia Jetson
-    - [Nano (ReComputer j1010)](https://www.seeedstudio.com/Jetson-10-1-H0-p-5335.html)
-    - Xavier AGX
-  - Single Board Computer (SBC)
-    - Raspberry Pi 4GB
-    - Raspberry Pi 8GB
-  - Intel X64
-    - MacOS
-    - Windows
-    - Ubuntu
-  - MCU Camera
-    - ESP32 CAM
-    - ESP32-S3-Eye
-  - Tested Cameras/CCTV/NVR
-    - RTSP Camera (Lorex/Amrest/DoorBell)
-    - Blink Camera
-    - IMOU Camera
-    - Google Nest (Indoor/Outdoor)
-</details>
-
-<img src="screenshots/reid_self_supervised.gif" width="960" height="480" />
-
-
-## Installation Guide 
-```
-pip3 install sharpai-hub
-sharpai-cli yolov7_reid start
-```
-
-<details> 
-   <summary><h3>Prerequisites</h3></summary>
-	1. Docker (Latest version) <br />
-	2. Python (v3.6 to v3.10 will work fine)
-</details>
 <details>
-  <summary><h3>Step-by-step guide</h3></summary
+<summary><h2>🏗️ Architecture</h2></summary>
 
-```NOTE: Before executing any of commands mentioned below please start Docker.```
-```This guide is to install the sharpai and run the yolov7_reid service but can also be used to start other services.```
-1) Install SharpAI-Hub by running the following command in a Command Prompt and Terminal. Remeber this as Command Prompt 1. This will be needed in further steps:
-	```
-	pip3 install sharpai-hub
-	```
-2) Now run the following command:
-	```
-	sharpai-cli yolov7_reid start
-	```
-**NOTE: If in a Windows system after running command mentioned in Step 2 if you get error:**
-`'sharpai-cli' is not recognized as an internal or external command, operable program or batch file.`
-Then it means environment variable is not set for Python on your system. More on this at the end of page in FAQ section.
-
-3) If you are using Windows and get error in step 2 you can also use following command line to start yolov7_reid
-
-```
-python3 -m sharpai_hub.cli yolov7_reid start
-```
-OR
-
-```
-python -m sharpai_hub.cli yolov7_reid start
-```
-4) Go to directory ```C:\Users``` and open the folder with name of current user. Here look for a folder  ```.sharpai``` . In ```.sharpai``` folder you will see a folder ```yolov7_reid```. Open it and start a new Command Prompt here. Remember this as ```Command Prompt 2```
-
-5) In Command Prompt 2 run the below command:
-
-```
-docker compose up
-```
-
-**NOTE: DO NOT TERMINATE THIS COMMAND.** Let it complete. After running the above command it will take roughly 15-20 minutes or even more time to complete depending upon your system specifications and internet speed. After 5-10 minutes of running the command in the images tab of Docker will images will start to appear. If the command ran successful then there must be seven images in images tab plus one container named as `yolov7_reid` in the container tab.
-
-6) Go to folder ```yolov7_reid``` mentioned in step 4. In this folder there will be file ```.env```. Delete it. Now close the Command Prompt 1. Open and new Command prompt and run the following command again. We will call this as Command Prompt 3. 
-
-```
-sharpai-cli yolov7_reid start
-```
-OR
-
-```
-python3 -m sharpai_hub.cli yolov7_reid start
-```
-OR
-
-```
-python -m sharpai_hub.cli yolov7_reid start
-```
-
-7) Running command in Step 6 will open a Signup/Signin page in the browser and in Command Prompt it will ask for the Labelstudio Token. After Signing up in you will be taken to your account. At the top right corrent you will see a small cirle with your account initials. Click on it and after that click on `Account Setting`. Here at the right side of page you will see a Access token. Copy the token and paste it carefully in the command prompt 3.
-	  
-8) Add Camera to Home-Assistant, you can use "Generic Camera" to add camera with RTSP url
-	  
-9) In this step, we will obtain the camera entity ID of your cameras. After adding your camera to `home-Assistant`, go to the `Overview` tab. Here all your cameras will be listed. Click on the video stream of a camera, after which a small popup will open. At the top right of the popup, click the gear icon to open the settings page. A new popup will open with a few editable properties. Here look for Entity ID, which is in the format `camera.IP_ADDRESS_OF_CAMERA`, copy/note this entity ID (these entity ids will be required later). If you have multiple cameras, we will need each cameras Entity ID. Note all these camera entity IDs.
-
-	  
-10) Run following two commands to open and edit the `configuration.yaml` of Home-Assistant:
-	  
-```
-docker exec -ti home-assistant /bin/bash 
-```	
-	  
-```
-vi configuration.yaml
-```
-	  
-**NOTE FOR WINDOWS SYSTEM USERS: These commands wont work with windows Systems. For Windows system, please open Docker (the instance of Docker, which is already running from the start) and in the container tab, open the `yolov7_reid`. Here look for the `home-assistant` container. Hover your mouse cursor on the `home-assistant` container, and a few options will appear. Click on `cli`. An inbuilt console will start on the same page. If the typing cursor keeps blinking and nothing shows up on the inbuilt console, then click on `Open in External Terminal`, which is just above the blinking cursor. After clicking it, a new command prompt will open. To check everything is working as expected, run the command `ls` and see if the commands list the files and folders in the config folder.**
-	  
-**Now run a command `vi configuration.yaml`. This command will open your configuration file of the `home-assistant` in the Vi editor. Vi Editor is a bit tricky if you are unfamiliar with using it. You will now have to enter into Insert mode to add the integration code mentioned in Step 9 to the configuration file. Press the `I` key to enter Insert mode and go end of the file using the down arrow key. Next, press the right mouse (while the mouse cursor is inside the command prompt window) while in the command prompt. This will paste the integration code that you had copied earlier. After making changes to the config file, press the escape key, type the following `:wq` (yes with colon) and press enter key. You will be back taken to `/config #`. This command `:wq` means you want to write changes to the config file and quit (I told you Vi is a bit tricky for beginners). You can now close the command prompt.**
-	  
-
-11) Add the below code to the end of `configuration.yaml` file. 
-	  
-**Here, replace `camera.<camera_entity_id>` with the camera entity ID we obtained in Step 9. If you have multiple cameras then keep adding the `entity_id` under `images_processing`.**
-	  
-	  
-```
-stream:
-  ll_hls: true
-  part_duration: 0.75
-  segment_duration: 6
-
-image_processing:
-  - platform: sharpai
-    source:
-      - entity_id: camera.<camera_entity_id>
-    scan_interval: 1
-```
-
-If you have multiple cameras then after changing the 'entity_id' the code will become similar to this:
-	  
-```
-stream:
-  ll_hls: true
-  part_duration: 0.75
-  segment_duration: 6
-
-image_processing:
-  - platform: sharpai
-    source:
-      - entity_id: camera.192_168_29_44
-      - entity_id: camera.192_168_29_45
-      - entity_id: camera.192_168_29_46
-      - entity_id: camera.192_168_29_47
-    scan_interval: 1
-```
-
-12) At `home-assistant` homepage `http://localhost:8123` select `Developer Tools`. Look for and click `Check Configuration` under `Configuration Validation`. If everything went well then it must show "Configuration Valid'. Click `Restart`.Now go to the `container` tab of docker, click three vertical dots under `Actions` and press restart. Open the `Overview` tab of `home-assitant`. If you see `Image Processing` beside your cameras and below it `Sharp IP_ADDRESS_OF_YOUR_CAMERA`, then congrats. Everything is working as expected.
-	  
-	  
- ```NOTE: Till further steps are added you can use demo video in the beginning tutorial for further help.```
-	 
-</details>
-<details>
-  <summary><h3>Important Links</h3></summary>
-
-The yolov7 detector is running in docker, you can access the docker desktop with http://localhost:8000  
-Home-Assistant is hosted at http://localhost:8123  
-Labelstudio is hosted at http://localhost:8080
-</details>
-
-# Application 2: Facial Recognition based intruder detection with local deployment
-We received feedback from community, local deployment is needed. With local deepcamera deployment, all information/images will be saved locally.   
-`sharpai-cli local_deepcamera start`
-
-# Application 3: DeepCamera Facial Recognition with cloud for free
-- Register account on [SharpAI website](http://dp.sharpai.org:3000)
-- Login on device: `sharpai-cli login`
-- Register device: `sharpai-cli device register`
-- Start DeepCamera: `sharpai-cli deepcamera start`
-
-# [Application 4: Laptop Screen Monitor](https://github.com/SharpAI/laptop_monitor) for kids/teens safe
-SharpAI Screen monitor captures screen extract screen image features(embeddings) with AI model, save unseen features(embeddings) into AI vector database [Milvus](https://milvus.io/), raw images are saved to [Labelstudio](https://labelstud.io) for labelling and model training, all information/images will be only saved locally.  
-	  
-`sharpai-cli screen_monitor start`
-	  
-### Access streaming screen: http://localhost:8000
-### Access labelstudio: http://localhost:8080
-
-# Application 5: Person Detector
-`sharpai-cli yolov7_person_detector start`
-
-
-# SharpAI-Hub AI Applications
-SharpAI community is continually working on bringing state-of-the-art computer vision application to your device.
-
-```sharpai-cli <application name> start
-```
-
-|Application|SharpAI CLI Name| OS/Device |
-|---|---|---|
-|Intruder detection with Person shape| yolov7_reid   | Jetson Nano/AGX /Windows/Linux/MacOS|
-|Person Detector| yolov7_person_detector   | Jetson Nano/AGX /Windows/Linux/MacOS|
-|[Laptop Screen Monitor](https://github.com/SharpAI/laptop_monitor)| screen_monitor   | Windows/Linux/MacOS|
-|[Facial Recognition Intruder Detection](docs/how_to_run_intruder_detection.md) | deepcamera | Jetson Nano|Windows/Linux/MacOS|
-|[Local Facial Recognition Intruder Detection](docs/how_to_run_local_intruder_detection.md) | local_deepcamera | Windows/Linux/MacOS|
-|[Parking Lot monitor](docs/Yolo_Parking.md) | yoloparking  | Jetson AGX |
-|[Fall Detection](docs/FallDetection_with_shinobi.md) | falldetection   |Jetson AGX|
-
-# Tested Devices
-## Edge AI Devices / Workstation
-- [Jetson Nano (ReComputer j1010)](https://www.seeedstudio.com/Jetson-10-1-H0-p-5335.html)
-- Jetson Xavier AGX
-- MacOS 12.4
-- Windows 11
-- Ubuntu 20.04
-
-## Tested Camera:
-- DaHua / Lorex / AMCREST: URL Path: `/cam/realmonitor?channel=1&subtype=0` Port: `554`
-- Ip Camera Lite on IOS: URL Path: `/live` Port: `8554`   
-- Nest Camera indoor/outdoor by Home-Assistant integration
-
-# Support
-- If you are using a camera but have no idea about the RTSP URL, please join SharpAI community for help.
-- SharpAI provides commercial support to companies which want to deploy AI Camera application to real world.
-## [Click to join sharpai slack channel](https://join.slack.com/t/sharpai/shared_invite/zt-1nt1g0dkg-navTKx6REgeq5L3eoC1Pqg)
-
-# DeepCamera Architecture
 ![architecture](screenshots/DeepCamera_infrastructure.png)
 
-# [DeepCamera Feature List](docs/DeepCamera_Features.md)
+[Complete Feature List →](docs/DeepCamera_Features.md)
 
-# Commercial Version
-- Provide real time pipeline on edge device     
-- E2E pipeline to support model customization  
-- Cluster on the edge  
-- Port to specific edge device/chipset
-- Voice application (ASR/KWS) end to end pipeline  
-- ReID model   
-- Behavior analysis model    
-- Transformer model  
-- Contrastive learning  
-- [Click to join sharpai slack channel for commercial support](https://sharpai-invite-automation.herokuapp.com/)
-
-# FAQ
-
-## 🏗️ Architecture
-![architecture](screenshots/DeepCamera_infrastructure.png)
+</details>
 
 ## 🤝 Support & Community
 
-### Community Support
-- Join our [Slack Community](https://join.slack.com/t/sharpai/shared_invite/zt-1nt1g0dkg-navTKx6REgeq5L3eoC1Pqg) for help and discussions
-- Visit our [GitHub Issues](https://github.com/SharpAI/DeepCamera/issues) for technical support
-- Need help with camera setup? Our community is here to assist!
+- 💬 [Slack Community](https://join.slack.com/t/sharpai/shared_invite/zt-1nt1g0dkg-navTKx6REgeq5L3eoC1Pqg) — help, discussions, and camera setup assistance
+- 🐛 [GitHub Issues](https://github.com/SharpAI/DeepCamera/issues) — technical support and bug reports
+- 🏢 [Commercial Support](https://join.slack.com/t/sharpai/shared_invite/zt-1nt1g0dkg-navTKx6REgeq5L3eoC1Pqg) — pipeline optimization, custom models, edge deployment
 
-### Commercial Support
-SharpAI offers professional support for enterprise deployments:
-- Real-time processing pipeline optimization
-- End-to-end model customization
-- Edge device clustering
-- Hardware-specific optimizations
-- Voice application pipelines (ASR/KWS)
-- Custom AI model development
-  - ReID models
-  - Behavior analysis
-  - Transformer-based solutions
-  - Contrastive learning
-
-[Contact us for commercial support](https://join.slack.com/t/sharpai/shared_invite/zt-1nt1g0dkg-navTKx6REgeq5L3eoC1Pqg)
-
-## ❓ FAQ
-
-### Installation & Setup
-- [How to install Python3](https://www.python.org/downloads)
-- [How to install pip3](https://pip.pypa.io/en/stable/installation)
-- [How to configure the web GUI](screenshots/how_to_config_on_web_gui.png)
-- [How to configure RTSP on GUI](https://github.com/SharpAI/DeepCamera/blob/master/docs/shinobi.md)
-- [Camera streaming URL formats](https://shinobi.video)
-
-### Device-Specific Setup
-#### Jetson Nano Docker-compose Installation
-```bash
-sudo apt-get install -y libhdf5-dev python3 python3-pip
-pip3 install -U pip
-sudo pip3 install docker-compose==1.27.4
-```
-
-### Additional Resources
-- [Complete Feature List](docs/DeepCamera_Features.md)
-- [How to Contribute](Contributions.md)
 
 ## [Contributions](Contributions.md)
