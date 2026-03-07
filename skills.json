@@ -48,6 +48,54 @@
       "ui_unlocks": [
         "benchmark_report"
       ]
+    },
+    {
+      "id": "yolo-detection-2026",
+      "name": "YOLO 2026 Object Detection",
+      "description": "State-of-the-art real-time object detection — 80+ COCO classes, bounding box overlays, multi-size model selection.",
+      "version": "1.0.0",
+      "category": "detection",
+      "path": "skills/detection/yolo-detection-2026",
+      "tags": [
+        "detection",
+        "yolo",
+        "object-detection",
+        "real-time",
+        "coco"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 2
+      },
+      "capabilities": [
+        "live_detection",
+        "bbox_overlay"
+      ],
+      "ui_unlocks": [
+        "detection_overlay",
+        "detection_results"
+      ],
+      "fps_presets": [
+        0.2,
+        0.5,
+        1,
+        3,
+        5,
+        15
+      ],
+      "model_sizes": [
+        "nano",
+        "small",
+        "medium",
+        "large"
+      ]
     }
   ]
 }
