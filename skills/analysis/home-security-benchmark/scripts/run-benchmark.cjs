@@ -73,6 +73,7 @@ Tests: 131 total (96 LLM + 35 VLM) across 16 suites
     process.exit(0);
 }
 
+
 // Parse skill parameters if running as Aegis skill
 let skillParams = {};
 try { skillParams = JSON.parse(process.env.AEGIS_SKILL_PARAMS || '{}'); } catch { }
@@ -1825,8 +1826,13 @@ async function main() {
     process.exit(failed > 0 ? 1 : 0);
 }
 
-// Only run when executed directly (not when require()'d for syntax/import checks)
-if (require.main === module) {
+// Run when executed directly — supports both plain Node and Electron spawn.
+// `require.main === module` works for `node script.cjs`.
+// `process.argv[1]` check handles `spawn(electronBinary, [scriptPath])`.
+const isDirectRun = require.main === module ||
+    (process.argv[1] && require('path').resolve(process.argv[1]) === __filename);
+
+if (isDirectRun) {
     main().catch(err => {
         log(`Fatal: ${err.message}`);
         emit({ event: 'error', message: err.message });
