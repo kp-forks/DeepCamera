@@ -97,6 +97,28 @@ const LLM_BASE_URL = process.env.AEGIS_LLM_BASE_URL || '';
 const VLM_API_TYPE = process.env.AEGIS_VLM_API_TYPE || 'openai-compatible';
 const VLM_MODEL = process.env.AEGIS_VLM_MODEL || '';
 
+// ─── OpenAI SDK Clients ──────────────────────────────────────────────────────
+const OpenAI = require('openai');
+
+// Resolve LLM base URL — priority: cloud provider → direct llama-server → gateway
+const strip = (u) => u.replace(/\/v1\/?$/, '');
+const llmBaseUrl = LLM_BASE_URL
+    ? `${strip(LLM_BASE_URL)}/v1`
+    : LLM_URL
+        ? `${strip(LLM_URL)}/v1`
+        : `${GATEWAY_URL}/v1`;
+
+const llmClient = new OpenAI({
+    apiKey: LLM_API_KEY || 'not-needed',  // Local servers don't require auth
+    baseURL: llmBaseUrl,
+});
+
+// VLM client — always local llama-server
+const vlmClient = VLM_URL ? new OpenAI({
+    apiKey: 'not-needed',
+    baseURL: `${strip(VLM_URL)}/v1`,
+}) : null;
+
 // ─── Skill Protocol: JSON lines on stdout, human text on stderr ──────────────
 
 /**
@@ -136,110 +158,70 @@ const results = {
 };
 
 async function llmCall(messages, opts = {}) {
-    const body = { messages, stream: true };
-    if (opts.model || LLM_MODEL) body.model = opts.model || LLM_MODEL;
-    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
-    if (opts.temperature !== undefined) body.temperature = opts.temperature;
-    if (opts.tools) body.tools = opts.tools;
-
-    // Resolve LLM endpoint — priority:
-    //   1. Cloud provider base URL (e.g. https://api.openai.com/v1) when set via UI
-    //   2. Direct llama-server URL (port 5411) for builtin local models
-    //   3. Gateway (port 5407) as final fallback
-    const strip = (u) => u.replace(/\/v1\/?$/, '');
-    let url;
-    if (opts.vlm) {
-        const vlmBase = VLM_URL ? strip(VLM_URL) : '';
-        url = `${vlmBase}/v1/chat/completions`;
-    } else if (LLM_BASE_URL) {
-        url = `${strip(LLM_BASE_URL)}/chat/completions`;
-    } else if (LLM_URL) {
-        url = `${strip(LLM_URL)}/v1/chat/completions`;
-    } else {
-        url = `${GATEWAY_URL}/v1/chat/completions`;
+    // Select the appropriate OpenAI client (LLM or VLM)
+    const client = opts.vlm ? vlmClient : llmClient;
+    if (!client) {
+        throw new Error(opts.vlm ? 'VLM client not configured' : 'LLM client not configured');
     }
 
-    // Build headers — include API key if available (for direct cloud provider access)
-    const headers = { 'Content-Type': 'application/json' };
-    if (LLM_API_KEY && !opts.vlm) headers['Authorization'] = `Bearer ${LLM_API_KEY}`;
+    const model = opts.model || (opts.vlm ? VLM_MODEL : LLM_MODEL) || undefined;
 
-    // Use an AbortController with idle timeout that resets on each SSE chunk.
-    // This way long inferences that stream tokens succeed, but requests
-    // stuck with no output for IDLE_TIMEOUT_MS still abort.
+    // Build request params
+    const params = {
+        messages,
+        stream: true,
+        ...(model && { model }),
+        ...(opts.temperature !== undefined && { temperature: opts.temperature }),
+        ...(opts.maxTokens && { max_completion_tokens: opts.maxTokens }),
+        ...(opts.tools && { tools: opts.tools }),
+    };
+
+    // Use an AbortController with idle timeout that resets on each streamed chunk.
     const controller = new AbortController();
     const idleMs = opts.timeout || IDLE_TIMEOUT_MS;
     let idleTimer = setTimeout(() => controller.abort(), idleMs);
     const resetIdle = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => controller.abort(), idleMs); };
 
     try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
+        const stream = await client.chat.completions.create(params, {
             signal: controller.signal,
         });
 
-        if (!response.ok) {
-            const errBody = await response.text().catch(() => '');
-            throw new Error(`HTTP ${response.status}: ${errBody.slice(0, 200)}`);
-        }
-
-        // Parse SSE stream
         let content = '';
         let reasoningContent = '';
         let toolCalls = null;
         let model = '';
         let usage = {};
-        let finishReason = '';
         let tokenCount = 0;
 
-        const reader = response.body;
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        for await (const chunk of reader) {
+        for await (const chunk of stream) {
             resetIdle();
-            buffer += decoder.decode(chunk, { stream: true });
 
-            // Process complete SSE lines
-            const lines = buffer.split('\n');
-            buffer = lines.pop(); // Keep incomplete line in buffer
+            if (chunk.model) model = chunk.model;
 
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                const payload = line.slice(6).trim();
-                if (payload === '[DONE]') continue;
-
-                try {
-                    const evt = JSON.parse(payload);
-                    if (evt.model) model = evt.model;
-
-                    const delta = evt.choices?.[0]?.delta;
-                    if (delta?.content) content += delta.content;
-                    if (delta?.reasoning_content) reasoningContent += delta.reasoning_content;
-                    if (delta?.content || delta?.reasoning_content) {
-                        tokenCount++;
-                        // Log progress every 100 tokens so the console isn't silent
-                        if (tokenCount % 100 === 0) {
-                            log(`    … ${tokenCount} tokens received`);
-                        }
-                    }
-                    if (delta?.tool_calls) {
-                        // Accumulate streamed tool calls
-                        if (!toolCalls) toolCalls = [];
-                        for (const tc of delta.tool_calls) {
-                            const idx = tc.index ?? 0;
-                            if (!toolCalls[idx]) {
-                                toolCalls[idx] = { id: tc.id, type: tc.type || 'function', function: { name: '', arguments: '' } };
-                            }
-                            if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
-                            if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
-                        }
-                    }
-                    if (evt.choices?.[0]?.finish_reason) finishReason = evt.choices[0].finish_reason;
-                    if (evt.usage) usage = evt.usage;
-                } catch { /* skip malformed SSE */ }
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta?.content) content += delta.content;
+            if (delta?.reasoning_content) reasoningContent += delta.reasoning_content;
+            if (delta?.content || delta?.reasoning_content) {
+                tokenCount++;
+                if (tokenCount % 100 === 0) {
+                    log(`    … ${tokenCount} tokens received`);
+                }
             }
+
+            if (delta?.tool_calls) {
+                if (!toolCalls) toolCalls = [];
+                for (const tc of delta.tool_calls) {
+                    const idx = tc.index ?? 0;
+                    if (!toolCalls[idx]) {
+                        toolCalls[idx] = { id: tc.id, type: tc.type || 'function', function: { name: '', arguments: '' } };
+                    }
+                    if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                    if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+                }
+            }
+
+            if (chunk.usage) usage = chunk.usage;
         }
 
         // If the model only produced reasoning_content (thinking) with no content,
@@ -264,6 +246,7 @@ async function llmCall(messages, opts = {}) {
     } finally {
         clearTimeout(idleTimer);
     }
+
 }
 
 function stripThink(text) {
@@ -1787,29 +1770,18 @@ async function main() {
     log(`  Mode:     ${IS_SKILL_MODE ? 'Aegis Skill' : 'Standalone'} (streaming, ${IDLE_TIMEOUT_MS / 1000}s idle timeout)`);
     log(`  Time:     ${new Date().toLocaleString()}`);
 
-    // Healthcheck — ping the actual LLM endpoint directly
-    const healthUrl = LLM_BASE_URL
-        ? `${LLM_BASE_URL.replace(/\/v1\/?$/, '')}/v1/chat/completions`
-        : LLM_URL
-            ? `${LLM_URL.replace(/\/v1\/?$/, '')}/v1/chat/completions`
-            : `${GATEWAY_URL}/v1/chat/completions`;
-    const healthHeaders = { 'Content-Type': 'application/json' };
-    if (LLM_API_KEY) healthHeaders['Authorization'] = `Bearer ${LLM_API_KEY}`;
-
+    // Healthcheck — ping the LLM endpoint via SDK
     try {
-        const ping = await fetch(healthUrl, {
-            method: 'POST',
-            headers: healthHeaders,
-            body: JSON.stringify({ messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 1 }),
-            signal: AbortSignal.timeout(15000),
+        const ping = await llmClient.chat.completions.create({
+            ...(LLM_MODEL && { model: LLM_MODEL }),
+            messages: [{ role: 'user', content: 'ping' }],
+            max_completion_tokens: 1,
         });
-        if (!ping.ok) throw new Error(`HTTP ${ping.status}`);
-        const data = await ping.json();
-        results.model.name = data.model || 'unknown';
+        results.model.name = ping.model || 'unknown';
         log(`  Model:    ${results.model.name}`);
     } catch (err) {
         log(`\n  ❌ Cannot reach LLM endpoint: ${err.message}`);
-        log(`     Endpoint: ${healthUrl}`);
+        log(`     Base URL: ${llmBaseUrl}`);
         log('     Check that the LLM server is running.\n');
         emit({ event: 'error', message: `Cannot reach LLM endpoint: ${err.message}` });
         process.exit(1);
