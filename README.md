@@ -25,16 +25,36 @@
 
 ---
 
-DeepCamera's open-source skills give your cameras AI — VLM scene analysis, object detection, person re-identification, all running locally with models like Qwen, DeepSeek, SmolVLM, and LLaVA.
+DeepCamera's open-source skills give your cameras AI — VLM scene analysis, object detection, person re-identification, all running locally with models like Qwen, DeepSeek, SmolVLM, and LLaVA. Built on proven facial recognition, RE-ID, fall detection, and CCTV/NVR surveillance monitoring, the skill catalog extends these machine learning capabilities with modern AI. All inference runs locally for maximum privacy.
 
-- 🧠 **Watches & Understands** — VLM scene analysis on every camera event
-- 🗃️ **Remembers** — Agentic memory learns your household patterns
-- 🛡️ **Guards** — Smart alerts that reduce noise from day one
-- 🗣️ **Talks** — Chat with your cameras via Telegram, Discord, Slack
-- 🔌 **Pluggable** — Every skill adds a new ability via [open protocol](docs/skill-development.md)
-- 🏠 **Local-first** — Runs on your Mac Mini or AI PC. Cloud (OpenAI, Google, Anthropic) optional.
+## 🧩 Skill Catalog
 
-Built on DeepCamera's proven open-source facial recognition, person re-identification (RE-ID), fall detection, and CCTV/NVR surveillance monitoring — the skill catalog extends these machine learning capabilities with modern AI: VLM scene understanding, SAM2 segmentation, DINOv3 visual grounding, and more. All inference runs locally for maximum privacy.
+Each skill is a self-contained module with its own model, parameters, and [communication protocol](docs/skill-development.md). See the [Skill Development Guide](docs/skill-development.md) and [Platform Parameters](docs/skill-params.md) to build your own.
+
+| Category | Skill | What It Does |
+|----------|-------|--------------|
+| **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class object detection |
+| | [`dinov3-grounding`](skills/detection/dinov3-grounding/) | Open-vocabulary detection — describe what to find |
+| | [`person-recognition`](skills/detection/person-recognition/) | Re-identify individuals across cameras |
+| **Analysis** | [`vlm-scene-analysis`](skills/analysis/vlm-scene-analysis/) | Describe what happened in recorded clips |
+| | [`sam2-segmentation`](skills/analysis/sam2-segmentation/) | Click-to-segment with pixel-perfect masks |
+| **Transformation** | [`depth-estimation`](skills/transformation/depth-estimation/) | Monocular depth maps with Depth Anything v2 |
+| **Annotation** | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export |
+| **Camera Providers** | [`eufy`](skills/camera-providers/eufy/) · [`reolink`](skills/camera-providers/reolink/) · [`tapo`](skills/camera-providers/tapo/) | Direct camera integrations via RTSP |
+| **Streaming** | [`go2rtc-cameras`](skills/streaming/go2rtc-cameras/) | RTSP → WebRTC live view |
+| **Channels** | [`matrix`](skills/channels/matrix/) · [`line`](skills/channels/line/) · [`signal`](skills/channels/signal/) | Messaging channels for Clawdbot agent |
+| **Automation** | [`mqtt`](skills/automation/mqtt/) · [`webhook`](skills/automation/webhook/) · [`ha-trigger`](skills/automation/ha-trigger/) | Event-driven automation triggers |
+| **Integrations** | [`homeassistant-bridge`](skills/integrations/homeassistant-bridge/) | HA cameras in ↔ detection results out |
+
+> **Registry:** All skills are indexed in [`skills.json`](skills.json) for programmatic discovery.
+
+### 🗺️ Roadmap
+
+- [x] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
+- [x] **Full skill catalog** — 18 skills across 9 categories with working scripts
+- [ ] **Skill Store UI** — browse, install, and configure skills from Aegis
+- [ ] **Custom skill packaging** — community-contributed skills via GitHub
+- [ ] **GPU-optimized containers** — one-click Docker deployment per skill
 
 ## 🚀 Getting Started with [SharpAI Aegis](https://www.sharpai.org)
 
@@ -68,60 +88,29 @@ The easiest way to run DeepCamera's AI skills. Aegis connects everything — cam
 </tr>
 </table>
 
----
 
-## 🧩 Skill Catalog
+## 📊 HomeSec-Bench — How Secure Is Your Local AI?
 
-Each skill is a self-contained module with its own model, parameters, and [communication protocol](docs/skill-development.md). They give your AI camera agent new abilities — detection, analysis, camera integration, messaging, and automation work together so it can see, think, and act. See the [Skill Development Guide](docs/skill-development.md) and [Platform Parameters](docs/skill-params.md) to build your own.
+**HomeSec-Bench** is a 131-test security benchmark that measures how well your local AI performs as a security guard. It tests what matters: Can it detect a person in fog? Classify a break-in vs. a delivery? Resist prompt injection? Route alerts correctly at 3 AM?
 
-| Category | Skill | What It Does |
-|----------|-------|--------------|
-| **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class object detection |
-| | [`dinov3-grounding`](skills/detection/dinov3-grounding/) | Open-vocabulary detection — describe what to find |
-| | [`person-recognition`](skills/detection/person-recognition/) | Re-identify individuals across cameras |
-| **Analysis** | [`vlm-scene-analysis`](skills/analysis/vlm-scene-analysis/) | Describe what happened in recorded clips |
-| | [`sam2-segmentation`](skills/analysis/sam2-segmentation/) | Click-to-segment with pixel-perfect masks |
-| **Transformation** | [`depth-estimation`](skills/transformation/depth-estimation/) | Monocular depth maps with Depth Anything v2 |
-| **Annotation** | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export |
-| **Camera Providers** | [`eufy`](skills/camera-providers/eufy/) · [`reolink`](skills/camera-providers/reolink/) · [`tapo`](skills/camera-providers/tapo/) | Direct camera integrations via RTSP |
-| **Streaming** | [`go2rtc-cameras`](skills/streaming/go2rtc-cameras/) | RTSP → WebRTC live view |
-| **Channels** | [`matrix`](skills/channels/matrix/) · [`line`](skills/channels/line/) · [`signal`](skills/channels/signal/) | Messaging channels for Clawdbot agent |
-| **Automation** | [`mqtt`](skills/automation/mqtt/) · [`webhook`](skills/automation/webhook/) · [`ha-trigger`](skills/automation/ha-trigger/) | Event-driven automation triggers |
-| **Integrations** | [`homeassistant-bridge`](skills/integrations/homeassistant-bridge/) | HA cameras in ↔ detection results out |
+Run it on your own hardware to know exactly where your setup stands.
 
-> **Registry:** All skills are indexed in [`skills.json`](skills.json) for programmatic discovery.
-
-### 🗺️ Roadmap
-
-- [x] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
-- [x] **Full skill catalog** — 18 skills across 9 categories with working scripts
-- [ ] **Skill Store UI** — browse, install, and configure skills from Aegis
-- [ ] **Custom skill packaging** — community-contributed skills via GitHub
-- [ ] **GPU-optimized containers** — one-click Docker deployment per skill
-
-## 📊 What Can Local AI Actually Do?
-
-We built **HomeSec-Bench** to answer this question — 131 tests evaluating LLM reasoning and VLM scene analysis on consumer hardware.
-
-### What It Tests
-
-| Area | Tests | Examples |
-|------|-------|---------|
+| Area | Tests | What's at Stake |
+|------|-------|-----------------|
 | Scene Understanding | 35 | Person detection in fog, rain, night IR, sun glare |
-| Security Classification | 12 | Is this critical, suspicious, or routine? |
-| Tool Use & Reasoning | 16 | Correct tool selection with accurate parameters |
-| Prompt Injection Resistance | 4 | Adversarial attacks that try to bypass safety |
+| Security Classification | 12 | Telling a break-in from a raccoon |
+| Tool Use & Reasoning | 16 | Correct tool calls with accurate parameters |
+| Prompt Injection Resistance | 4 | Adversarial attacks that try to disable your guard |
 | Privacy Compliance | 3 | PII leak prevention, illegal surveillance refusal |
-| Alert Routing | 5 | Time-based, channel-specific delivery rules |
+| Alert Routing | 5 | Right message, right channel, right time |
 
-### Results on Consumer Hardware
+### Results: Local vs. Cloud vs. Hybrid
 
-Running on a **Mac M1 Mini 8GB** with local VLMs:
-- **96 LLM reasoning tests** — evaluating tool use, classification, and narrative synthesis
-- **35 VLM scene analysis tests** — object detection across 5 condition categories
-- All 35 test images are **AI-generated** — no real footage, fully privacy-compliant
+<img src="screenshots/homesec-bench-results.png" alt="HomeSec-Bench benchmark results — local Qwen 4B vs cloud GPT-5.2 vs hybrid" width="100%">
 
-📄 [HomeSec-Bench Paper](docs/paper/home-security-benchmark.pdf) · 🔬 [Run It Yourself](skills/analysis/home-security-benchmark/) · 📋 [Test Scenarios](skills/analysis/home-security-benchmark/fixtures/)
+Running on a **Mac M1 Mini 8GB**: local Qwen3.5-4B scores **39/54** (72%), cloud GPT-5.2 scores **46/48** (96%), and the hybrid config reaches **53/54** (98%). All 35 VLM test images are **AI-generated** — no real footage, fully privacy-compliant.
+
+📄 [Read the Paper](docs/paper/home-security-benchmark.pdf) · 🔬 [Run It Yourself](skills/analysis/home-security-benchmark/) · 📋 [Test Scenarios](skills/analysis/home-security-benchmark/fixtures/)
 
 ---
 
