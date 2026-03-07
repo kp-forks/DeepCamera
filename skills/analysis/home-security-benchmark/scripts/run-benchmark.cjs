@@ -1806,9 +1806,14 @@ async function main() {
     process.exit(failed > 0 ? 1 : 0);
 }
 
-main().catch(err => {
-    log(`Fatal: ${err.message}`);
-    emit({ event: 'error', message: err.message });
-    process.exit(1);
-});
+// Only run when executed directly (not when require()'d for syntax/import checks)
+if (require.main === module) {
+    main().catch(err => {
+        log(`Fatal: ${err.message}`);
+        emit({ event: 'error', message: err.message });
+        process.exit(1);
+    });
+}
+
+module.exports = { main };
 
