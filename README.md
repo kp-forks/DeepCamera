@@ -1,8 +1,7 @@
 <div align="center">
-<h1>DeepCamera</h1>
-<h3>Open-Source AI Camera Skills Platform</h3>
+<h1>DeepCamera — Open-Source AI Camera Skills Platform</h1>
 
-<p><b>Turn any camera into an AI-powered security guard that watches, understands, and protects your home — locally or in the cloud.</b></p>
+<p>DeepCamera's open-source skills give your cameras AI — VLM scene analysis, object detection, person re-identification, all running locally with models like Qwen, DeepSeek, SmolVLM, and LLaVA. Built on proven facial recognition, RE-ID, fall detection, and CCTV/NVR surveillance monitoring, the skill catalog extends these machine learning capabilities with modern AI. All inference runs locally for maximum privacy.</p>
 
 <p>
     <a href="https://join.slack.com/t/sharpai/shared_invite/zt-1nt1g0dkg-navTKx6REgeq5L3eoC1Pqg">
@@ -24,8 +23,6 @@
 </div>
 
 ---
-
-DeepCamera's open-source skills give your cameras AI — VLM scene analysis, object detection, person re-identification, all running locally with models like Qwen, DeepSeek, SmolVLM, and LLaVA. Built on proven facial recognition, RE-ID, fall detection, and CCTV/NVR surveillance monitoring, the skill catalog extends these machine learning capabilities with modern AI. All inference runs locally for maximum privacy.
 
 ## 🧩 Skill Catalog
 
