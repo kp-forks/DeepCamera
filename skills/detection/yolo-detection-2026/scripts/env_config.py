@@ -156,17 +156,60 @@ class HardwareEnv:
         return False
 
     def _try_rocm(self) -> bool:
-        """Detect AMD GPU via rocm-smi or /opt/rocm."""
+        """Detect AMD GPU via amd-smi (preferred) or rocm-smi."""
+        has_amd_smi = shutil.which("amd-smi") is not None
         has_rocm_smi = shutil.which("rocm-smi") is not None
         has_rocm_dir = Path("/opt/rocm").is_dir()
 
-        if not (has_rocm_smi or has_rocm_dir):
+        if not (has_amd_smi or has_rocm_smi or has_rocm_dir):
             return False
 
         self.backend = "rocm"
         self.device = "cuda"  # ROCm exposes as CUDA in PyTorch
 
-        if has_rocm_smi:
+        # Strategy 1: amd-smi static --json (ROCm 6.3+/7.x, richest output)
+        if has_amd_smi:
+            try:
+                result = subprocess.run(
+                    ["amd-smi", "static", "--json"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode == 0:
+                    import json as _json
+                    data = _json.loads(result.stdout)
+                    # amd-smi may return {"gpu_data": [...]} or a bare list
+                    gpu_list = data.get("gpu_data", data) if isinstance(data, dict) else data
+                    if isinstance(gpu_list, list) and len(gpu_list) > 0:
+                        # Pick GPU with most VRAM (discrete > iGPU)
+                        def _vram_mb(g):
+                            vram = g.get("vram", {}).get("size", {})
+                            if isinstance(vram, dict):
+                                return int(vram.get("value", 0))
+                            return 0
+
+                        best_gpu = max(gpu_list, key=_vram_mb)
+                        best_idx = gpu_list.index(best_gpu)
+                        asic = best_gpu.get("asic", {})
+                        vram = best_gpu.get("vram", {}).get("size", {})
+
+                        self.gpu_name = asic.get("market_name", "AMD GPU")
+                        self.gpu_memory_mb = int(vram.get("value", 0)) if isinstance(vram, dict) else 0
+                        self.detection_details["amd_smi"] = {
+                            "gpu_index": best_idx,
+                            "gfx_version": asic.get("target_graphics_version", ""),
+                            "total_gpus": len(gpu_list),
+                        }
+
+                        # Pin to discrete GPU if multiple GPUs present
+                        if len(gpu_list) > 1:
+                            os.environ["HIP_VISIBLE_DEVICES"] = str(best_idx)
+                            os.environ["ROCR_VISIBLE_DEVICES"] = str(best_idx)
+                            _log(f"Multi-GPU: pinned to GPU {best_idx} ({self.gpu_name})")
+            except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, Exception) as e:
+                _log(f"amd-smi probe failed: {e}")
+
+        # Strategy 2: rocm-smi fallback (legacy ROCm <6.3)
+        if not self.gpu_name and has_rocm_smi:
             try:
                 result = subprocess.run(
                     ["rocm-smi", "--showproductname", "--csv"],
@@ -186,7 +229,6 @@ class HardwareEnv:
                     capture_output=True, text=True, timeout=10,
                 )
                 if result.returncode == 0:
-                    # Parse total VRAM
                     for line in result.stdout.strip().split("\n")[1:]:
                         parts = line.split(",")
                         if len(parts) >= 2:
@@ -296,11 +338,22 @@ class HardwareEnv:
 
         _log("No GPU detected, using CPU backend")
 
+    def _check_rocm_runtime(self):
+        """Verify onnxruntime has ROCm provider, not just CPU."""
+        import onnxruntime
+        providers = onnxruntime.get_available_providers()
+        if "ROCmExecutionProvider" in providers or "MIGraphXExecutionProvider" in providers:
+            _log(f"onnxruntime ROCm providers: {providers}")
+            return True
+        _log(f"onnxruntime providers: {providers} — ROCmExecutionProvider not found")
+        _log("Fix: pip uninstall onnxruntime && pip install onnxruntime-rocm")
+        raise ImportError("ROCmExecutionProvider not available")
+
     def _check_framework(self) -> bool:
         """Check if the optimized inference runtime is importable."""
         checks = {
             "cuda": lambda: __import__("tensorrt"),
-            "rocm": lambda: __import__("onnxruntime"),
+            "rocm": lambda: self._check_rocm_runtime(),
             "mps": lambda: __import__("coremltools"),
             "intel": lambda: __import__("openvino"),
             "cpu": lambda: __import__("onnxruntime"),

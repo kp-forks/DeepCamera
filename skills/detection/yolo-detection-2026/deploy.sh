@@ -136,7 +136,7 @@ else
             BACKEND="cuda"
             log "Detected NVIDIA GPU (driver: $cuda_ver)"
         fi
-    elif command -v rocm-smi &>/dev/null || [ -d "/opt/rocm" ]; then
+    elif command -v amd-smi &>/dev/null || command -v rocm-smi &>/dev/null || [ -d "/opt/rocm" ]; then
         BACKEND="rocm"
         log "Detected AMD ROCm"
     elif [ "$(uname)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
