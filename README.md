@@ -40,11 +40,9 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | Category | Skill | What It Does | Status |
 |----------|-------|--------------|:------:|
 | **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class detection — auto-accelerated via TensorRT / CoreML / OpenVINO / ONNX | ✅|
-| | [`dinov3-grounding`](skills/detection/dinov3-grounding/) | Open-vocabulary detection — describe what to find | 📐 |
-| | [`person-recognition`](skills/detection/person-recognition/) | Re-identify individuals across cameras | 📐 |
 | **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [143-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
 | | [`smarthome-bench`](skills/analysis/smarthome-bench/) | Video anomaly detection benchmark — 105 clips across 7 smart home categories | ✅ |
-| | [`vlm-scene-analysis`](skills/analysis/vlm-scene-analysis/) | Describe what happened in recorded clips | 📐 |
+| | [`homesafe-bench`](skills/analysis/homesafe-bench/) | Indoor safety hazard detection — 40 tests across 5 categories | ✅ |
 | | [`sam2-segmentation`](skills/analysis/sam2-segmentation/) | Click-to-segment with pixel-perfect masks | 📐 |
 | **Transformation** | [`depth-estimation`](skills/transformation/depth-estimation/) | Monocular depth maps with Depth Anything v2 | 📐 |
 | **Annotation** | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export | 📐 |
