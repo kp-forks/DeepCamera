@@ -95,11 +95,19 @@ fi
 
 BACKEND="cpu"
 
-if [ -n "$LIB_DIR" ] && [ -f "$LIB_DIR/env_config.py" ]; then
+# Find env_config.py — bundled copy or repo lib/
+ENV_CONFIG_DIR=""
+if [ -f "$SKILL_DIR/scripts/env_config.py" ]; then
+    ENV_CONFIG_DIR="$SKILL_DIR/scripts"
+elif [ -n "$LIB_DIR" ] && [ -f "$LIB_DIR/env_config.py" ]; then
+    ENV_CONFIG_DIR="$LIB_DIR"
+fi
+
+if [ -n "$ENV_CONFIG_DIR" ]; then
     log "Detecting hardware via env_config.py..."
     DETECT_OUTPUT=$("$VENV_DIR/bin/python" -c "
 import sys
-sys.path.insert(0, '$LIB_DIR')
+sys.path.insert(0, '$ENV_CONFIG_DIR')
 from env_config import HardwareEnv
 env = HardwareEnv.detect()
 print(env.backend)
@@ -121,7 +129,7 @@ print(env.backend)
 else
     log "env_config.py not found, using heuristic detection..."
 
-    # Fallback: inline GPU detection (same as before)
+    # Fallback: inline GPU detection
     if command -v nvidia-smi &>/dev/null; then
         cuda_ver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
         if [ -n "$cuda_ver" ]; then
@@ -162,7 +170,7 @@ if [ "$BACKEND" != "cpu" ] || [ -f "$SKILL_DIR/requirements_cpu.txt" ]; then
 
     "$VENV_DIR/bin/python" -c "
 import sys
-sys.path.insert(0, '$LIB_DIR')
+sys.path.insert(0, '$ENV_CONFIG_DIR')
 from env_config import HardwareEnv
 env = HardwareEnv.detect()
 
@@ -191,7 +199,7 @@ fi
 log "Verifying installation..."
 "$VENV_DIR/bin/python" -c "
 import sys
-sys.path.insert(0, '$LIB_DIR')
+sys.path.insert(0, '$ENV_CONFIG_DIR')
 from env_config import HardwareEnv
 import json
 
