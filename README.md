@@ -90,6 +90,53 @@ The easiest way to run DeepCamera's AI skills. Aegis connects everything — cam
 </table>
 
 
+## 🎯 YOLO 2026 — Real-Time Object Detection
+
+State-of-the-art detection running locally on **any hardware**, fully integrated as a [DeepCamera skill](skills/detection/yolo-detection-2026/).
+
+### YOLO26 Models
+
+YOLO26 (Jan 2026) eliminates NMS and DFL for cleaner exports and lower latency. Pick the size that fits your hardware:
+
+| Model | Params | Latency (optimized) | Use Case |
+|-------|--------|:-------------------:|----------|
+| **yolo26n** (nano) | 2.6M | ~2ms | Edge devices, real-time on CPU |
+| **yolo26s** (small) | 11.2M | ~5ms | Balanced speed & accuracy |
+| **yolo26m** (medium) | 25.4M | ~12ms | Accuracy-focused |
+| **yolo26l** (large) | 52.3M | ~25ms | Maximum detection quality |
+
+All models detect **80+ COCO classes**: people, vehicles, animals, everyday objects.
+
+### Hardware Acceleration
+
+The shared [`env_config.py`](skills/lib/env_config.py) **auto-detects your GPU** and converts the model to the fastest native format — zero manual setup:
+
+| Your Hardware | Optimized Format | Runtime | Speedup vs PyTorch |
+|---------------|-----------------|---------|:------------------:|
+| **NVIDIA GPU** (RTX, Jetson) | TensorRT `.engine` | CUDA | **3-5x** |
+| **Apple Silicon** (M1–M4) | CoreML `.mlpackage` | ANE + GPU | **~2x** |
+| **Intel** (CPU, iGPU, NPU) | OpenVINO IR `.xml` | OpenVINO | **2-3x** |
+| **AMD GPU** (RX, MI) | ONNX Runtime | ROCm | **1.5-2x** |
+| **Any CPU** | ONNX Runtime | CPU | **~1.5x** |
+
+### Aegis Skill Integration
+
+Detection runs as a **parallel pipeline** alongside VLM analysis — never blocks your AI agent:
+
+```
+Camera → Frame Governor → detect.py (JSONL) → Aegis IPC → Live Overlay
+                5 FPS           ↓
+                          perf_stats (p50/p95/p99 latency)
+```
+
+- 🖱️ **Click to setup** — one button in Aegis installs everything, no terminal needed
+- 🤖 **AI-driven environment config** — autonomous agent detects your GPU, installs the right framework (CUDA/ROCm/CoreML/OpenVINO), converts models, and verifies the setup
+- 📺 **Live bounding boxes** — detection results rendered as overlays on RTSP camera streams
+- 📊 **Built-in performance profiling** — aggregate latency stats (p50/p95/p99) emitted every 50 frames
+- ⚡ **Auto start** — set `auto_start: true` to begin detecting when Aegis launches
+
+📖 [Full Skill Documentation →](skills/detection/yolo-detection-2026/SKILL.md)
+
 ## 📊 HomeSec-Bench — How Secure Is Your Local AI?
 
 **HomeSec-Bench** is a 131-test security benchmark that measures how well your local AI performs as a security guard. It tests what matters: Can it detect a person in fog? Classify a break-in vs. a delivery? Resist prompt injection? Route alerts correctly at 3 AM?
