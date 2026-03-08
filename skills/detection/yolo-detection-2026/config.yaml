@@ -56,3 +56,10 @@ params:
       - { value: cuda, label: "NVIDIA CUDA" }
       - { value: mps, label: "Apple Silicon (MPS)" }
       - { value: rocm, label: "AMD ROCm" }
+
+  - key: use_coreml
+    label: CoreML Acceleration
+    type: boolean
+    default: true
+    description: "Convert model to CoreML for ~2x faster inference on Apple Silicon (ANE)"
+

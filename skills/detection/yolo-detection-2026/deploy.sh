@@ -142,7 +142,28 @@ emit "{\"event\": \"progress\", \"stage\": \"install\", \"message\": \"Installin
 
 "$PIP" install -r "$REQ_FILE" -q 2>&1 | tail -5 >&2
 
-# ─── Step 5: Verify installation ────────────────────────────────────────────
+# ─── Step 5: CoreML pre-conversion (MPS only) ───────────────────────────────
+
+if [ "$BACKEND" = "mps" ]; then
+    log "Pre-converting default model to CoreML for ANE acceleration..."
+    emit '{"event": "progress", "stage": "coreml", "message": "Converting model to CoreML (~30s)..."}'
+
+    "$VENV_DIR/bin/python" -c "
+from ultralytics import YOLO
+model = YOLO('yolo26n.pt')
+exported = model.export(format='coreml', half=True, nms=False)
+print(f'CoreML model exported: {exported}')
+" 2>&1 | while read -r line; do log "$line"; done
+
+    if [ $? -eq 0 ]; then
+        emit '{"event": "progress", "stage": "coreml", "message": "CoreML conversion complete"}'
+    else
+        log "WARNING: CoreML conversion failed, will use PyTorch MPS at runtime"
+        emit '{"event": "progress", "stage": "coreml", "message": "CoreML conversion failed — PyTorch MPS fallback"}'
+    fi
+fi
+
+# ─── Step 6: Verify installation ────────────────────────────────────────────
 
 log "Verifying installation..."
 "$VENV_DIR/bin/python" -c "
@@ -156,3 +177,4 @@ print(f'OK: ultralytics loaded, torch device={device}')
 
 emit "{\"event\": \"complete\", \"backend\": \"$BACKEND\", \"message\": \"YOLO 2026 skill installed ($BACKEND backend)\"}"
 log "Done! Backend: $BACKEND"
+

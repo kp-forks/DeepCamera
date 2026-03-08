@@ -6,6 +6,8 @@ Communicates via JSON lines over stdin/stdout:
   stdin:  {"event": "frame", "frame_id": N, "camera_id": "...", "frame_path": "...", ...}
   stdout: {"event": "detections", "frame_id": N, "camera_id": "...", "objects": [...]}
 
+On Apple Silicon (MPS), auto-converts to CoreML for ~2x faster inference via ANE.
+
 Usage:
   python detect.py --config config.json
   python detect.py --model-size nano --confidence 0.5 --device auto
@@ -90,6 +92,64 @@ def emit(event: dict):
     print(json.dumps(event), flush=True)
 
 
+def log(msg: str):
+    """Write a log message to stderr (visible in Aegis deploy console)."""
+    print(f"[YOLO-2026] {msg}", file=sys.stderr, flush=True)
+
+
+def try_coreml_export(model, model_name: str) -> "Path | None":
+    """Export PyTorch model to CoreML. Returns path to .mlpackage or None on failure."""
+    coreml_path = Path(f"{model_name}.mlpackage")
+
+    # Already exported
+    if coreml_path.exists():
+        log(f"CoreML model found: {coreml_path}")
+        return coreml_path
+
+    try:
+        log(f"Exporting {model_name}.pt → CoreML (one-time, ~30s)...")
+        exported = model.export(format="coreml", half=True, nms=False)
+        exported_path = Path(exported)
+        if exported_path.exists():
+            log(f"CoreML export complete: {exported_path}")
+            return exported_path
+        log(f"CoreML export returned path {exported} but file not found")
+    except Exception as e:
+        log(f"CoreML export failed: {e}")
+
+    return None
+
+
+def load_model(model_name: str, device: str, use_coreml: bool):
+    """Load YOLO model — CoreML on MPS if available, PyTorch otherwise."""
+    from ultralytics import YOLO
+
+    model_format = "pytorch"
+
+    # Try CoreML on Apple Silicon
+    if device == "mps" and use_coreml:
+        pt_model = YOLO(f"{model_name}.pt")
+        coreml_path = try_coreml_export(pt_model, model_name)
+
+        if coreml_path:
+            try:
+                model = YOLO(str(coreml_path))
+                model_format = "coreml"
+                log(f"Loaded CoreML model ({coreml_path})")
+                return model, model_format
+            except Exception as e:
+                log(f"CoreML load failed, falling back to PyTorch MPS: {e}")
+
+        # Fallback: use the already-loaded PyTorch model on MPS
+        pt_model.to(device)
+        return pt_model, model_format
+
+    # Non-CoreML path: standard PyTorch
+    model = YOLO(f"{model_name}.pt")
+    model.to(device)
+    return model, model_format
+
+
 def main():
     args = parse_args()
     config = load_config(args)
@@ -99,24 +159,28 @@ def main():
     device = select_device(config.get("device", "auto"))
     confidence = config.get("confidence", 0.5)
     fps = config.get("fps", 5)
+    use_coreml = config.get("use_coreml", True)
+
+    # Coerce use_coreml from string "true"/"false" if passed via env
+    if isinstance(use_coreml, str):
+        use_coreml = use_coreml.lower() in ("true", "1", "yes")
 
     # Map size to ultralytics model name
-    model_name = MODEL_SIZE_MAP.get(model_size, "yolo11n")
+    model_name = MODEL_SIZE_MAP.get(model_size, "yolo26n")
 
     target_classes = config.get("classes", ["person", "car", "dog", "cat"])
     if isinstance(target_classes, str):
         target_classes = [c.strip() for c in target_classes.split(",")]
 
-    # Load YOLO model
+    # Load YOLO model (with CoreML auto-conversion on MPS)
     try:
-        from ultralytics import YOLO
-        model = YOLO(f"{model_name}.pt")
-        model.to(device)
+        model, model_format = load_model(model_name, device, use_coreml)
         emit({
             "event": "ready",
             "model": f"yolo2026{model_size[0]}",
             "model_size": model_size,
             "device": device,
+            "format": model_format,
             "classes": len(model.names),
             "fps": fps,
             "available_sizes": list(MODEL_SIZE_MAP.keys()),
