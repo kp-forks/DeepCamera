@@ -173,9 +173,36 @@ if [ "$BACKEND" = "rocm" ]; then
     ROCM_VER="${ROCM_VER:-6.2}"  # fallback if detection fails
     log "Detected ROCm version: $ROCM_VER"
 
-    # Phase 1: PyTorch from ROCm index (--index-url forces ROCm build, not CUDA)
-    log "Installing PyTorch with ROCm $ROCM_VER support..."
-    "$PIP" install torch torchvision --index-url "https://download.pytorch.org/whl/rocm${ROCM_VER}" -q 2>&1 | tail -3 >&2
+    # Build list of ROCm versions to try (detected → step down → previous major)
+    ROCM_MAJOR=$(echo "$ROCM_VER" | cut -d. -f1)
+    ROCM_MINOR=$(echo "$ROCM_VER" | cut -d. -f2)
+    ROCM_CANDIDATES="$ROCM_VER"
+    m=$((ROCM_MINOR - 1))
+    while [ "$m" -ge 0 ]; do
+        ROCM_CANDIDATES="$ROCM_CANDIDATES ${ROCM_MAJOR}.${m}"
+        m=$((m - 1))
+    done
+    # Also try previous major version (e.g., 6.4, 6.2 if on 7.x)
+    prev_major=$((ROCM_MAJOR - 1))
+    for pm in 4 3 2 1 0; do
+        ROCM_CANDIDATES="$ROCM_CANDIDATES ${prev_major}.${pm}"
+    done
+
+    # Phase 1: Try each candidate until PyTorch installs successfully
+    TORCH_INSTALLED=false
+    for ver in $ROCM_CANDIDATES; do
+        log "Trying PyTorch for ROCm $ver ..."
+        if "$PIP" install torch torchvision --index-url "https://download.pytorch.org/whl/rocm${ver}" -q 2>&1; then
+            log "Installed PyTorch with ROCm $ver support"
+            TORCH_INSTALLED=true
+            break
+        fi
+    done
+
+    if [ "$TORCH_INSTALLED" = false ]; then
+        log "WARNING: No PyTorch ROCm wheels found, installing CPU PyTorch from PyPI"
+        "$PIP" install torch torchvision -q 2>&1 | tail -3 >&2
+    fi
 
     # Phase 2: remaining packages (ultralytics, onnxruntime-rocm, etc.)
     "$PIP" install ultralytics onnxruntime-rocm 'onnx>=1.12.0,<2.0.0' 'onnxslim>=0.1.71' \
