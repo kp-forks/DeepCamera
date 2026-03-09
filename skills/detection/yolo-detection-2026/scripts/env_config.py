@@ -51,9 +51,9 @@ BACKEND_SPECS = {
     ),
     "rocm": BackendSpec(
         name="rocm",
-        export_format="onnx",
-        model_suffix=".onnx",
-        half=False,  # ONNX Runtime ROCm handles precision internally
+        export_format="pytorch",     # PyTorch + HIP — ultralytics ONNX doesn't support ROCMExecutionProvider
+        model_suffix=".pt",
+        half=False,
     ),
     "mps": BackendSpec(
         name="mps",
@@ -165,7 +165,16 @@ class HardwareEnv:
             return False
 
         self.backend = "rocm"
-        self.device = "cuda"  # ROCm exposes as CUDA in PyTorch
+        # ROCm exposes as CUDA in PyTorch — but only if PyTorch-ROCm is installed
+        try:
+            import torch
+            if torch.cuda.is_available():
+                self.device = "cuda"
+            else:
+                self.device = "cpu"
+                _log("PyTorch CUDA/ROCm not available, using CPU for PyTorch fallback")
+        except ImportError:
+            self.device = "cpu"
 
         # Strategy 1: amd-smi static --json (ROCm 6.3+/7.x, richest output)
         if has_amd_smi:
@@ -467,13 +476,33 @@ class HardwareEnv:
 
             # Fallback: use the PT model we already loaded
             _log("Falling back to PyTorch model")
-            pt_model.to(self.device)
+            fallback_device = self.device
+            if fallback_device == "cuda":
+                try:
+                    import torch
+                    if not torch.cuda.is_available():
+                        fallback_device = "cpu"
+                        _log("torch.cuda not available, falling back to CPU")
+                except ImportError:
+                    fallback_device = "cpu"
+            pt_model.to(fallback_device)
+            self.device = fallback_device
             self.load_ms = (time.perf_counter() - t0) * 1000
             return pt_model, "pytorch"
 
         # No optimization requested or framework missing
         model = YOLO(f"{model_name}.pt")
-        model.to(self.device)
+        fallback_device = self.device
+        if fallback_device == "cuda":
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    fallback_device = "cpu"
+                    _log("torch.cuda not available, falling back to CPU")
+            except ImportError:
+                fallback_device = "cpu"
+        model.to(fallback_device)
+        self.device = fallback_device
         self.load_ms = (time.perf_counter() - t0) * 1000
         return model, "pytorch"
 

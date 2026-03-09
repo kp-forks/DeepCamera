@@ -160,7 +160,59 @@ fi
 log "Installing dependencies from $REQ_FILE ..."
 emit "{\"event\": \"progress\", \"stage\": \"install\", \"message\": \"Installing $BACKEND dependencies...\"}"
 
-"$PIP" install -r "$REQ_FILE" -q 2>&1 | tail -5 >&2
+if [ "$BACKEND" = "rocm" ]; then
+    # ROCm: detect installed version for correct PyTorch index URL
+    ROCM_VER=""
+    if [ -f /opt/rocm/.info/version ]; then
+        ROCM_VER=$(head -1 /opt/rocm/.info/version | grep -oE '[0-9]+\.[0-9]+')
+    elif command -v amd-smi &>/dev/null; then
+        ROCM_VER=$(amd-smi version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    elif command -v rocminfo &>/dev/null; then
+        ROCM_VER=$(rocminfo 2>/dev/null | grep -i "HSA Runtime" | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    fi
+    ROCM_VER="${ROCM_VER:-6.2}"  # fallback if detection fails
+    log "Detected ROCm version: $ROCM_VER"
+
+    # Build list of ROCm versions to try (detected → step down → previous major)
+    ROCM_MAJOR=$(echo "$ROCM_VER" | cut -d. -f1)
+    ROCM_MINOR=$(echo "$ROCM_VER" | cut -d. -f2)
+    ROCM_CANDIDATES="$ROCM_VER"
+    m=$((ROCM_MINOR - 1))
+    while [ "$m" -ge 0 ]; do
+        ROCM_CANDIDATES="$ROCM_CANDIDATES ${ROCM_MAJOR}.${m}"
+        m=$((m - 1))
+    done
+    # Also try previous major version (e.g., 6.4, 6.2 if on 7.x)
+    prev_major=$((ROCM_MAJOR - 1))
+    for pm in 4 3 2 1 0; do
+        ROCM_CANDIDATES="$ROCM_CANDIDATES ${prev_major}.${pm}"
+    done
+
+    # Phase 1: Try each candidate until PyTorch installs successfully
+    TORCH_INSTALLED=false
+    for ver in $ROCM_CANDIDATES; do
+        log "Trying PyTorch for ROCm $ver ..."
+        if "$PIP" install torch torchvision --index-url "https://download.pytorch.org/whl/rocm${ver}" -q 2>&1; then
+            log "Installed PyTorch with ROCm $ver support"
+            TORCH_INSTALLED=true
+            break
+        fi
+    done
+
+    if [ "$TORCH_INSTALLED" = false ]; then
+        log "WARNING: No PyTorch ROCm wheels found, installing CPU PyTorch from PyPI"
+        "$PIP" install torch torchvision -q 2>&1 | tail -3 >&2
+    fi
+
+    # Phase 2: remaining packages (ultralytics, onnxruntime-rocm, etc.)
+    "$PIP" install ultralytics onnxruntime-rocm 'onnx>=1.12.0,<2.0.0' 'onnxslim>=0.1.71' \
+        'numpy>=1.24.0' 'opencv-python-headless>=4.8.0' 'Pillow>=10.0.0' -q 2>&1 | tail -3 >&2
+
+    # Prevent ultralytics from auto-installing CPU onnxruntime during export
+    export YOLO_AUTOINSTALL=0
+else
+    "$PIP" install -r "$REQ_FILE" -q 2>&1 | tail -5 >&2
+fi
 
 # ─── Step 5: Pre-convert model to optimized format ───────────────────────────
 

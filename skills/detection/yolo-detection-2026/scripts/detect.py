@@ -15,11 +15,15 @@ Usage:
 """
 
 import sys
+import os
 import json
 import argparse
 import signal
 import time
 from pathlib import Path
+
+# Prevent ultralytics from auto-installing packages (e.g. onnxruntime-gpu on ROCm)
+os.environ.setdefault("YOLO_AUTOINSTALL", "0")
 
 # Import env_config — try multiple locations:
 # 1. Same directory as detect.py (bundled copy)

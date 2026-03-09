@@ -93,8 +93,11 @@ class TestTryRocmAmdSmi:
         """With 2 GPUs, picks the R9700 (32 GB) over iGPU (2 GB)."""
         mock_run.return_value = _make_run_result(AMD_SMI_DUAL_GPU)
 
-        env = HardwareEnv()
-        result = env._try_rocm()
+        mock_torch = mock.MagicMock()
+        mock_torch.cuda.is_available.return_value = True
+        with mock.patch.dict("sys.modules", {"torch": mock_torch}):
+            env = HardwareEnv()
+            result = env._try_rocm()
 
         assert result is True
         assert env.backend == "rocm"
@@ -169,6 +172,23 @@ class TestTryRocmAmdSmi:
         assert result is True
         assert env.backend == "rocm"
         assert env.gpu_name == ""  # No name parsed, but backend detected
+
+    @mock.patch("env_config.shutil.which", _mock_which({"amd-smi"}))
+    @mock.patch("env_config.Path.is_dir", return_value=False)
+    @mock.patch("env_config.subprocess.run")
+    def test_no_pytorch_rocm_falls_back_to_cpu_device(self, mock_run, _mock_dir):
+        """When torch.cuda.is_available() is False, device stays 'cpu'."""
+        mock_run.return_value = _make_run_result(AMD_SMI_SINGLE_GPU)
+
+        mock_torch = mock.MagicMock()
+        mock_torch.cuda.is_available.return_value = False
+        with mock.patch.dict("sys.modules", {"torch": mock_torch}):
+            env = HardwareEnv()
+            env._try_rocm()
+
+        assert env.backend == "rocm"
+        assert env.device == "cpu"  # No PyTorch-ROCm → CPU fallback
+        assert env.gpu_name == "AMD Radeon RX 7900 XTX"  # GPU still detected
 
 
 class TestTryRocmFallback:
