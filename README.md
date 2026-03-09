@@ -24,6 +24,35 @@
 
 ---
 
+<div align="center">
+
+### 🛡️ Introducing [SharpAI Aegis](https://www.sharpai.org) — Desktop App for DeepCamera
+
+**Use DeepCamera's AI skills through a desktop app with LLM-powered setup, agent chat, and smart alerts — connected to your mobile via Discord / Telegram / Slack.**
+
+[SharpAI Aegis](https://www.sharpai.org) is the desktop companion for DeepCamera. It uses LLM to automatically set up your environment, configure camera skills, and manage the full AI pipeline — no manual Docker or CLI required. It also adds an intelligent agent layer: persistent memory, agentic chat with your cameras, AI video generation, voice (TTS), and conversational messaging via Discord / Telegram / Slack.
+
+[**📦 Download SharpAI Aegis →**](https://www.sharpai.org)
+
+</div>
+
+<table>
+<tr>
+<td width="50%">
+<p align="center"><b>Run Local VLMs from HuggingFace — Even on Mac Mini 8GB</b></p>
+<img src="screenshots/aegis-vlm-browser.png" alt="SharpAI Aegis — Browse and run local VLM models for AI camera video analysis" width="100%">
+<p align="center"><em>Download and run SmolVLM2, Qwen-VL, LLaVA, MiniCPM-V locally. Your AI security camera agent sees through these eyes.</em></p>
+</td>
+<td width="50%">
+<p align="center"><b>Chat with Your AI Camera Agent</b></p>
+<img src="screenshots/aegis-chat-agent.png" alt="SharpAI Aegis — LLM-powered agentic security camera chat" width="100%">
+<p align="center"><em>"Who was at the door?" — Your agent searches footage, reasons about what happened, and answers with timestamps and clips.</em></p>
+</td>
+</tr>
+</table>
+
+---
+
 ## 🗺️ Roadmap
 
 - [x] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
@@ -67,27 +96,6 @@ The easiest way to run DeepCamera's AI skills. Aegis connects everything — cam
 - 🔽 **One-click HuggingFace downloads** — browse and run Qwen, DeepSeek, SmolVLM, LLaVA, MiniCPM-V
 - 📊 **Find the best VLM for your machine** — benchmark models on your own hardware with HomeSec-Bench
 - 💬 **Talk to your guard** — via Telegram, Discord, or Slack. Ask what happened, tell it what to watch for, get AI-reasoned answers with footage.
-
-<div align="center">
-
-[**📦 Download SharpAI Aegis →**](https://www.sharpai.org)
-
-</div>
-
-<table>
-<tr>
-<td width="50%">
-<p align="center"><b>Run Local VLMs from HuggingFace — Even on Mac Mini 8GB</b></p>
-<img src="screenshots/aegis-vlm-browser.png" alt="SharpAI Aegis — Browse and run local VLM models for AI camera video analysis" width="100%">
-<p align="center"><em>Download and run SmolVLM2, Qwen-VL, LLaVA, MiniCPM-V locally. Your AI security camera agent sees through these eyes.</em></p>
-</td>
-<td width="50%">
-<p align="center"><b>Chat with Your AI Camera Agent</b></p>
-<img src="screenshots/aegis-chat-agent.png" alt="SharpAI Aegis — LLM-powered agentic security camera chat" width="100%">
-<p align="center"><em>"Who was at the door?" — Your agent searches footage, reasons about what happened, and answers with timestamps and clips.</em></p>
-</td>
-</tr>
-</table>
 
 
 ## 🎯 YOLO 2026 — Real-Time Object Detection
