@@ -240,13 +240,21 @@ def main():
         target_classes = [c.strip() for c in target_classes.split(",")]
 
     # ── Hardware detection & optimized model loading ──
+    emit({"event": "progress", "stage": "init", "message": "Detecting compute hardware..."})
     env = HardwareEnv.detect()
     perf = PerfTracker(interval=PERF_STATS_INTERVAL)
 
+    gpu_msg = f"{env.gpu_name} ({env.backend})" if env.gpu_name else env.backend
+    emit({"event": "progress", "stage": "init", "message": f"Hardware: {gpu_msg}"})
+
     try:
+        emit({"event": "progress", "stage": "model", "message": f"Loading {model_name} model ({env.export_format} format)..."})
         model, model_format = env.load_optimized(model_name, use_optimized=use_optimized)
         perf.model_load_ms = env.load_ms
         perf.export_ms = env.export_ms
+
+        if env.export_ms > 0:
+            emit({"event": "progress", "stage": "model", "message": f"Model optimized in {env.export_ms:.0f}ms"})
 
         ready_event = {
             "event": "ready",
