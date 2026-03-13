@@ -98,19 +98,23 @@
       ]
     },
     {
-      "id": "smarthome-bench",
-      "name": "SmartHome Video Anomaly Benchmark",
-      "description": "VLM evaluation suite for video anomaly detection in smart home camera footage — 7 categories, 105 curated clips from SmartHome-Bench.",
-      "version": "1.0.0",
-      "category": "analysis",
-      "path": "skills/analysis/smarthome-bench",
-      "tags": [
-        "benchmark",
-        "vlm",
-        "video",
-        "anomaly-detection",
-        "smart-home"
+      "id": "camera-claw",
+      "name": "Camera Claw",
+      "description": "Security camera for your AI agent — sandbox, record, and monitor OpenClaw activity.",
+      "version": "1.1.0",
+      "category": "integrations",
+      "repo_url": "https://github.com/SharpAI/CameraClaw",
+      "code_structure": [
+        { "path": "SKILL.md", "desc": "Aegis skill manifest (11 params)" },
+        { "path": "package.json", "desc": "Node.js dependencies" },
+        { "path": "config.yaml", "desc": "Default params" },
+        { "path": "deploy.sh", "desc": "Node.js + Docker bootstrapper" },
+        { "path": "deploy.bat", "desc": "Windows bootstrapper" },
+        { "path": "scripts/monitor.js", "desc": "Main entry — Docker orchestrator + JSONL protocol" },
+        { "path": "scripts/health-check.js", "desc": "Container health checker" },
+        { "path": "docs/aegis_openclaw_note.md", "desc": "Aegis integration requirements" }
       ],
+      "tags": ["security", "sandbox", "monitoring", "openclaw"],
       "platforms": [
         "linux-x64",
         "linux-arm64",
@@ -119,51 +123,11 @@
         "win-x64"
       ],
       "requirements": {
-        "node": ">=18",
-        "ram_gb": 2,
-        "system_deps": [
-          "yt-dlp",
-          "ffmpeg"
-        ]
+        "docker": true
       },
       "capabilities": [
-        "benchmark",
-        "report_generation"
-      ],
-      "ui_unlocks": [
-        "benchmark_report"
-      ]
-    },
-    {
-      "id": "homesafe-bench",
-      "name": "HomeSafe Indoor Safety Benchmark",
-      "description": "VLM evaluation suite for indoor home safety hazard detection — 40 tests across 5 categories: fire/smoke, electrical, trip/fall, child safety, falling objects.",
-      "version": "1.0.0",
-      "category": "analysis",
-      "path": "skills/analysis/homesafe-bench",
-      "tags": [
-        "benchmark",
-        "vlm",
-        "safety",
-        "hazard",
-        "indoor"
-      ],
-      "platforms": [
-        "linux-x64",
-        "linux-arm64",
-        "darwin-arm64",
-        "darwin-x64",
-        "win-x64"
-      ],
-      "requirements": {
-        "node": ">=18",
-        "ram_gb": 2
-      },
-      "capabilities": [
-        "benchmark"
-      ],
-      "ui_unlocks": [
-        "benchmark_report"
+        "monitoring",
+        "recording"
       ]
     }
   ]
