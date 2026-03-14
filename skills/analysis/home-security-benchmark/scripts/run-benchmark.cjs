@@ -165,14 +165,20 @@ async function llmCall(messages, opts = {}) {
     }
 
     const model = opts.model || (opts.vlm ? VLM_MODEL : LLM_MODEL) || undefined;
-    // For JSON-expected tests, disable thinking (Qwen3 /no_think directive)
-    // This prevents the model from wasting tokens on reasoning before outputting JSON
+    // For JSON-expected tests, disable thinking (Qwen3.5 doesn't support /no_think)
+    // Method 1: Inject empty <think></think> assistant prefix to skip reasoning phase
+    // Method 2: chat_template_kwargs via extra_body (works if server supports it)
     if (opts.expectJSON) {
-        const lastUserIdx = messages.findLastIndex(m => m.role === 'user');
-        if (lastUserIdx >= 0) {
-            messages = [...messages];
-            messages[lastUserIdx] = { ...messages[lastUserIdx], content: messages[lastUserIdx].content + ' /no_think' };
-        }
+        messages = [...messages];
+        // Remove any leftover /no_think from messages
+        messages = messages.map(m => {
+            if (m.role === 'user' && typeof m.content === 'string' && m.content.endsWith(' /no_think')) {
+                return { ...m, content: m.content.slice(0, -10) };
+            }
+            return m;
+        });
+        // Inject empty think block as assistant prefix (most portable method)
+        messages.push({ role: 'assistant', content: '<think>\n</think>\n' });
     }
 
     // Build request params
@@ -182,7 +188,9 @@ async function llmCall(messages, opts = {}) {
         ...(model && { model }),
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
         ...(opts.maxTokens && { max_completion_tokens: opts.maxTokens }),
-        ...(opts.expectJSON && { response_format: { type: 'json_object' } }),
+        // Qwen3.5 non-thinking mode recommended params
+        ...(opts.expectJSON && opts.temperature === undefined && { temperature: 0.7 }),
+        ...(opts.expectJSON && { top_p: 0.8, presence_penalty: 1.5 }),
         ...(opts.tools && { tools: opts.tools }),
     };
 
@@ -192,7 +200,7 @@ async function llmCall(messages, opts = {}) {
     let idleTimer = setTimeout(() => controller.abort(), idleMs);
     const resetIdle = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => controller.abort(), idleMs); };
     // Log prompt being sent
-    log(`\n    📤 Prompt (${messages.length} messages, params: ${JSON.stringify({maxTokens: opts.maxTokens, expectJSON: !!opts.expectJSON, response_format: params.response_format})}):`);
+    log(`\n    📤 Prompt (${messages.length} messages, params: ${JSON.stringify({maxTokens: opts.maxTokens, expectJSON: !!opts.expectJSON})}):`);
     for (const m of messages) {
         if (typeof m.content === 'string') {
             log(`       [${m.role}] ${m.content}`);
@@ -274,10 +282,15 @@ async function llmCall(messages, opts = {}) {
                         break;
                     }
                 }
-                // Hard cap: abort if token count far exceeds maxTokens (server may
-                // not count thinking tokens toward the limit)
-                if (opts.maxTokens && tokenCount > opts.maxTokens * 3) {
-                    log(`    ⚠ Aborting: ${tokenCount} tokens exceeds ${opts.maxTokens}×3 safety limit`);
+                // Hard cap: abort if token count far exceeds maxTokens
+                if (opts.maxTokens && tokenCount > opts.maxTokens * 2) {
+                    log(`    ⚠ Aborting: ${tokenCount} tokens exceeds ${opts.maxTokens}×2 safety limit`);
+                    controller.abort();
+                    break;
+                }
+                // Global safety limit: no benchmark test should ever need >2000 tokens
+                if (tokenCount > 2000) {
+                    log(`    ⚠ Aborting: ${tokenCount} tokens exceeds global 2000-token safety limit`);
                     controller.abort();
                     break;
                 }
@@ -334,10 +347,28 @@ function parseJSON(text) {
     const cleaned = stripThink(text);
     let jsonStr = cleaned;
     const codeBlock = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (codeBlock) jsonStr = codeBlock[1];
-    else {
-        const idx = cleaned.search(/[{[]/);
-        if (idx > 0) jsonStr = cleaned.slice(idx);
+    if (codeBlock) {
+        jsonStr = codeBlock[1];
+    } else {
+        // Find first { or [ and extract balanced JSON
+        const startIdx = cleaned.search(/[{[]/);
+        if (startIdx >= 0) {
+            const opener = cleaned[startIdx];
+            const closer = opener === '{' ? '}' : ']';
+            let depth = 0;
+            let inString = false;
+            let escape = false;
+            for (let i = startIdx; i < cleaned.length; i++) {
+                const ch = cleaned[i];
+                if (escape) { escape = false; continue; }
+                if (ch === '\\' && inString) { escape = true; continue; }
+                if (ch === '"') { inString = !inString; continue; }
+                if (!inString) {
+                    if (ch === opener) depth++;
+                    else if (ch === closer) { depth--; if (depth === 0) { jsonStr = cleaned.slice(startIdx, i + 1); break; } }
+                }
+            }
+        }
     }
     return JSON.parse(jsonStr.trim());
 }
