@@ -71,8 +71,8 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class detection — auto-accelerated via TensorRT / CoreML / OpenVINO / ONNX | ✅|
 | **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [143-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
 | **Privacy** | [`depth-estimation`](skills/transformation/depth-estimation/) | [Real-time depth-map privacy transform](#-privacy--depth-map-anonymization) — anonymize camera feeds while preserving activity | ✅ |
-| **Annotation** | [`sam2-segmentation`](skills/annotation/sam2-segmentation/) | Click-to-segment with pixel-perfect masks | 📐 |
-| | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export | 📐 |
+| **Segmentation** | [`sam2-segmentation`](skills/segmentation/sam2-segmentation/) | Interactive click-to-segment with Segment Anything 2 — pixel-perfect masks, point/box prompts, video tracking | ✅ |
+| **Annotation** | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export | 📐 |
 | **Training** | [`model-training`](skills/training/model-training/) | Agent-driven YOLO fine-tuning — annotate, train, export, deploy | 📐 |
 | **Automation** | [`mqtt`](skills/automation/mqtt/) · [`webhook`](skills/automation/webhook/) · [`ha-trigger`](skills/automation/ha-trigger/) | Event-driven automation triggers | 📐 |
 | **Integrations** | [`homeassistant-bridge`](skills/integrations/homeassistant-bridge/) | HA cameras in ↔ detection results out | 📐 |

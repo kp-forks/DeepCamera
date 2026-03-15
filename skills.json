@@ -9,6 +9,7 @@
     "transformation": "Depth estimation, style transfer, video effects",
     "privacy": "Privacy transforms — depth maps, blur, anonymization for blind mode",
     "annotation": "Dataset labeling, COCO export, training data",
+    "segmentation": "Pixel-level object segmentation — SAM2, interactive masks",
     "training": "Model fine-tuning, hardware-optimized export, deployment",
     "camera-providers": "Camera brand integrations — clip feed, live stream",
     "streaming": "RTSP/WebRTC live view via go2rtc",
@@ -196,6 +197,39 @@
         "fine_tuning",
         "model_export",
         "deployment"
+      ]
+    },
+    {
+      "id": "segmentation-sam2",
+      "name": "SAM2 Segmentation",
+      "description": "Interactive click-to-segment using Segment Anything 2 — pixel-perfect masks, point/box prompts, video tracking.",
+      "version": "1.0.0",
+      "category": "segmentation",
+      "path": "skills/segmentation/sam2-segmentation",
+      "tags": [
+        "annotation",
+        "segmentation",
+        "sam2",
+        "labeling",
+        "masks"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 4
+      },
+      "capabilities": [
+        "interactive_segmentation",
+        "video_tracking"
+      ],
+      "ui_unlocks": [
+        "annotation_studio"
       ]
     }
   ]
