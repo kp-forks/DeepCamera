@@ -1,6 +1,10 @@
 # Depth Estimation — Privacy Transform Skill
 # NOTE: torch and torchvision MUST be version-paired.
 # Loose ranges cause pip to flip between incompatible versions.
+#
+# INSTALL WITH: pip install --ignore-requires-python -r requirements.txt
+# The depth-anything-v2 PyPI wheel declares python_requires>=3.12 in its
+# metadata, but is pure Python (py3-none-any) and works on Python 3.11+.
 torch~=2.7.0
 torchvision~=0.22.0
 depth-anything-v2>=0.1.0
