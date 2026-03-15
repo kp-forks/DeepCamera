@@ -25,8 +25,6 @@ capabilities:
     script: scripts/segment.py
     description: "Interactive segmentation on frames"
 
-ui_unlocks:
-  - annotation_studio
 ---
 
 # SAM2 Interactive Segmentation

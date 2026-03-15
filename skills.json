@@ -227,6 +227,34 @@
       "capabilities": [
         "interactive_segmentation",
         "video_tracking"
+      ]
+    },
+    {
+      "id": "annotation-data",
+      "name": "Annotation Data",
+      "description": "Dataset annotation management — COCO labels, sequences, export, and Kaggle upload for Annotation Studio.",
+      "version": "1.0.0",
+      "category": "annotation",
+      "path": "skills/annotation/dataset-management",
+      "tags": [
+        "annotation",
+        "dataset",
+        "coco",
+        "labeling"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9"
+      },
+      "capabilities": [
+        "dataset_management",
+        "coco_export"
       ],
       "ui_unlocks": [
         "annotation_studio"
