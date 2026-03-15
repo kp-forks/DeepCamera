@@ -1,15 +1,22 @@
 ---
 name: depth-estimation
-description: "Real-time depth map estimation for privacy transforms using Depth Anything v2"
-version: 1.1.0
+description: "Real-time depth map privacy transforms using Depth Anything v2 (CoreML + PyTorch)"
+version: 1.2.0
 category: privacy
 
 parameters:
   - name: model
     label: "Depth Model"
     type: select
-    options: ["depth-anything-v2-small", "depth-anything-v2-base", "depth-anything-v2-large", "midas-small"]
+    options: ["depth-anything-v2-small", "depth-anything-v2-base", "depth-anything-v2-large"]
     default: "depth-anything-v2-small"
+    group: Model
+
+  - name: variant
+    label: "CoreML Variant (macOS)"
+    type: select
+    options: ["DepthAnythingV2SmallF16", "DepthAnythingV2SmallF16INT8", "DepthAnythingV2SmallF32"]
+    default: "DepthAnythingV2SmallF16"
     group: Model
 
   - name: blend_mode
@@ -30,7 +37,7 @@ parameters:
   - name: colormap
     label: "Depth Colormap"
     type: select
-    options: ["inferno", "viridis", "plasma", "magma", "jet"]
+    options: ["inferno", "viridis", "plasma", "magma", "jet", "turbo", "hot", "cool"]
     default: "inferno"
     group: Display
 
@@ -53,12 +60,21 @@ Real-time monocular depth estimation using Depth Anything v2. Transforms camera 
 
 When used for **privacy mode**, the `depth_only` blend mode fully anonymizes the scene while preserving spatial layout and activity, enabling security monitoring without revealing identities.
 
+## Hardware Backends
+
+| Platform | Backend | Runtime | Model |
+|----------|---------|---------|-------|
+| **macOS** | CoreML | Apple Neural Engine | `apple/coreml-depth-anything-v2-small` (.mlpackage) |
+| Linux/Windows | PyTorch | CUDA / CPU | `depth-anything/Depth-Anything-V2-Small` (.pth) |
+
+On macOS, CoreML runs on the Neural Engine, leaving the GPU free for other tasks. The model is auto-downloaded from HuggingFace and stored at `~/.aegis-ai/models/feature-extraction/`.
+
 ## What You Get
 
 - **Privacy anonymization** — depth-only mode hides all visual identity
 - **Depth overlays** on live camera feeds
-- **Distance estimation** — approximate distance to detected objects
 - **3D scene understanding** — spatial layout of the scene
+- **CoreML acceleration** — Neural Engine on Apple Silicon (3-5x faster than MPS)
 
 ## Interface: TransformSkillBase
 
@@ -88,14 +104,14 @@ class MyPrivacySkill(TransformSkillBase):
 
 ### Skill → Aegis (stdout)
 ```jsonl
-{"event": "ready", "model": "depth-anything-v2-small", "device": "mps"}
+{"event": "ready", "model": "coreml-DepthAnythingV2SmallF16", "device": "neural_engine", "backend": "coreml"}
 {"event": "transform", "frame_id": "cam1_1710001", "camera_id": "front_door", "transform_data": "<base64 JPEG>"}
-{"event": "perf_stats", "total_frames": 50, "timings_ms": {"transform": {"avg": 45.2, ...}}}
+{"event": "perf_stats", "total_frames": 50, "timings_ms": {"transform": {"avg": 12.5, ...}}}
 ```
 
 ## Setup
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install --ignore-requires-python -r requirements.txt
+pip install -r requirements.txt
 ```

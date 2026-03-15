@@ -1,13 +1,20 @@
 # Depth Estimation — Privacy Transform Skill
-# NOTE: torch and torchvision MUST be version-paired.
-# Loose ranges cause pip to flip between incompatible versions.
+# CoreML-first on macOS (Neural Engine), PyTorch fallback on other platforms.
 #
-# INSTALL WITH: pip install --ignore-requires-python -r requirements.txt
-# The depth-anything-v2 PyPI wheel declares python_requires>=3.12 in its
-# metadata, but is pure Python (py3-none-any) and works on Python 3.11+.
+# macOS: coremltools loads .mlpackage models — fast, leaves GPU free.
+# Other: PyTorch + depth-anything-v2 pip package + HF weights.
+# Common: opencv, numpy, pillow, huggingface_hub for model download.
+
+# ── CoreML (macOS only) ──────────────────────────────────────────────
+coremltools>=8.0; sys_platform == "darwin"
+
+# ── PyTorch fallback (non-macOS, or if CoreML unavailable) ───────────
+# NOTE: torch and torchvision MUST be version-paired.
 torch~=2.7.0
 torchvision~=0.22.0
 depth-anything-v2>=0.1.0
+
+# ── Common dependencies ─────────────────────────────────────────────
 huggingface_hub>=0.20.0
 numpy>=1.24.0
 opencv-python-headless>=4.8.0
