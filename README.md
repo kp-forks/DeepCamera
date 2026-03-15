@@ -60,7 +60,7 @@
 - [x] **AI/LLM-assisted skill installation** — community-contributed skills installed and configured via AI agent
 - [x] **GPU / NPU / CPU (AIPC) aware installation** — auto-detect hardware, install matching frameworks, convert models to optimal format
 - [x] **Hardware environment layer** — shared [`env_config.py`](skills/lib/env_config.py) for auto-detection + model optimization across NVIDIA, AMD, Apple Silicon, Intel, and CPU
-- [ ] **Skill development** — 18 skills across 9 categories, actively expanding with community contributions
+- [ ] **Skill development** — 19 skills across 10 categories, actively expanding with community contributions
 
 ## 🧩 Skill Catalog
 
@@ -73,6 +73,7 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | **Privacy** | [`depth-estimation`](skills/transformation/depth-estimation/) | [Real-time depth-map privacy transform](#-privacy--depth-map-anonymization) — anonymize camera feeds while preserving activity | ✅ |
 | **Annotation** | [`sam2-segmentation`](skills/annotation/sam2-segmentation/) | Click-to-segment with pixel-perfect masks | 📐 |
 | | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export | 📐 |
+| **Training** | [`model-training`](skills/training/model-training/) | Agent-driven YOLO fine-tuning — annotate, train, export, deploy | 📐 |
 | **Camera Providers** | [`eufy`](skills/camera-providers/eufy/) · [`reolink`](skills/camera-providers/reolink/) · [`tapo`](skills/camera-providers/tapo/) | Direct camera integrations via RTSP | 📐 |
 | **Streaming** | [`go2rtc-cameras`](skills/streaming/go2rtc-cameras/) | RTSP → WebRTC live view | 📐 |
 | **Channels** | [`matrix`](skills/channels/matrix/) · [`line`](skills/channels/line/) · [`signal`](skills/channels/signal/) | Messaging channels for Clawdbot agent | 📐 |

@@ -9,6 +9,7 @@
     "transformation": "Depth estimation, style transfer, video effects",
     "privacy": "Privacy transforms — depth maps, blur, anonymization for blind mode",
     "annotation": "Dataset labeling, COCO export, training data",
+    "training": "Model fine-tuning, hardware-optimized export, deployment",
     "camera-providers": "Camera brand integrations — clip feed, live stream",
     "streaming": "RTSP/WebRTC live view via go2rtc",
     "channels": "Messaging platform channels for Clawdbot agent",
@@ -164,6 +165,37 @@
       "ui_unlocks": [
         "privacy_overlay",
         "blind_mode"
+      ]
+    },
+    {
+      "id": "model-training",
+      "name": "Model Training",
+      "description": "Agent-driven YOLO fine-tuning — annotate, train, auto-export to TensorRT/CoreML/OpenVINO, deploy as detection skill.",
+      "version": "1.0.0",
+      "category": "training",
+      "path": "skills/training/model-training",
+      "tags": [
+        "training",
+        "fine-tuning",
+        "yolo",
+        "custom-model",
+        "export"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 4
+      },
+      "capabilities": [
+        "fine_tuning",
+        "model_export",
+        "deployment"
       ]
     }
   ]
