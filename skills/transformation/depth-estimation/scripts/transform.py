@@ -245,9 +245,15 @@ class DepthEstimationSkill(TransformSkillBase):
         if not onnx_cfg:
             raise ValueError(f"No ONNX config for model: {model_name}")
 
-        # Download ONNX model from HuggingFace
-        _log(f"Downloading ONNX model: {onnx_cfg['repo']}...", self._tag)
-        model_path = hf_hub_download(onnx_cfg["repo"], onnx_cfg["filename"])
+        # Check local models dir first (placed by deploy.bat or UI download)
+        local_onnx = MODELS_DIR / f"{Path(onnx_cfg['filename']).stem}.onnx"
+        if local_onnx.exists():
+            model_path = str(local_onnx)
+            _log(f"Found local ONNX model: {local_onnx}", self._tag)
+        else:
+            # Fall back to HuggingFace cache download
+            _log(f"Downloading ONNX model: {onnx_cfg['repo']}...", self._tag)
+            model_path = hf_hub_download(onnx_cfg["repo"], onnx_cfg["filename"])
 
         # Build EP cascade: prefer GPU, fall back to CPU
         available_eps = ort.get_available_providers()

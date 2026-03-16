@@ -100,11 +100,18 @@ if %ERRORLEVEL% neq 0 (
 REM ── 5. Download ONNX model ─────────────────────────────────────────
 echo [DepthDeploy] Downloading ONNX model from HuggingFace...
 
-%VENV_PYTHON% -c "from huggingface_hub import snapshot_download; snapshot_download('onnx-community/depth-anything-v2-small', local_dir='models/onnx/depth-anything-v2-small', allow_patterns=['onnx/*.onnx', 'onnx/*.json', 'preprocessor_config.json', 'config.json'])"
-if %ERRORLEVEL% equ 0 (
-    echo [DepthDeploy] ONNX model downloaded successfully
+set "MODELS_DIR=%USERPROFILE%\.aegis-ai\models\feature-extraction"
+if not exist "%MODELS_DIR%" mkdir "%MODELS_DIR%"
+
+if exist "%MODELS_DIR%\model.onnx" (
+    echo [DepthDeploy] ONNX model already exists at %MODELS_DIR%\model.onnx
 ) else (
-    echo [DepthDeploy] WARNING: Model download failed — will retry on first run
+    %VENV_PYTHON% -c "from huggingface_hub import hf_hub_download; import shutil, os; p = hf_hub_download('onnx-community/depth-anything-v2-small', 'onnx/model.onnx'); d = os.path.join(os.path.expanduser('~'), '.aegis-ai', 'models', 'feature-extraction', 'model.onnx'); shutil.copy2(p, d); print(f'[DepthDeploy] Model copied to {d}')"
+    if %ERRORLEVEL% equ 0 (
+        echo [DepthDeploy] ONNX model downloaded successfully
+    ) else (
+        echo [DepthDeploy] WARNING: Model download failed — will retry on first run
+    )
 )
 
 REM ── 6. Verify installation ─────────────────────────────────────────
