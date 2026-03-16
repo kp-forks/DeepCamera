@@ -4,7 +4,8 @@ Depth Estimation Privacy Skill — Monocular depth maps via Depth Anything v2.
 
 Backend selection:
   macOS  → CoreML (.mlpackage via coremltools) — runs on Neural Engine
-  Other  → PyTorch (depth_anything_v2 pip package + HF weights) — runs on CUDA/MPS/CPU
+  Other  → ONNX Runtime (pre-exported .onnx from HuggingFace) — CUDA/TRT/DirectML/CPU
+           Fallback → PyTorch (depth_anything_v2 pip package + HF weights) — CUDA/MPS/CPU
 
 Implements the TransformSkillBase interface to provide real-time depth map
 overlays on camera feeds. When used as a privacy skill, the depth-only mode
@@ -95,6 +96,15 @@ PYTORCH_CONFIGS = {
     },
 }
 
+# ONNX model configs — pre-exported models from onnx-community on HuggingFace
+ONNX_CONFIGS = {
+    "depth-anything-v2-small": {
+        "repo": "onnx-community/depth-anything-v2-small",
+        "filename": "onnx/model.onnx",
+        "input_size": (518, 518),  # H, W
+    },
+}
+
 
 class DepthEstimationSkill(TransformSkillBase):
     """
@@ -108,11 +118,15 @@ class DepthEstimationSkill(TransformSkillBase):
         super().__init__()
         self._tag = "DepthEstimation"
         self.model = None
-        self.backend = None  # "coreml" or "pytorch"
+        self.backend = None  # "coreml", "onnx", "tensorrt", or "pytorch"
         self.colormap_id = 1
         self.opacity = 0.5
         self.blend_mode = "depth_only"  # Default for privacy: depth_only anonymizes
         self._coreml_input_size = COREML_INPUT_SIZE
+        # ONNX Runtime state
+        self._ort_session = None
+        self._ort_input_name = None
+        self._ort_input_size = (518, 518)  # H, W default
         # TensorRT state (populated by _load_tensorrt)
         self._trt_context = None
         self._trt_input_name = None
@@ -146,6 +160,13 @@ class DepthEstimationSkill(TransformSkillBase):
                 return info
             except Exception as e:
                 _log(f"CoreML load failed ({e}), falling back to PyTorch", self._tag)
+
+        # Non-macOS: try ONNX Runtime first (lightest, fastest install)
+        try:
+            info = self._load_onnx(model_name, config)
+            return info
+        except Exception as e:
+            _log(f"ONNX Runtime load failed ({e}), trying TensorRT...", self._tag)
 
         # Try TensorRT (fails fast if not installed)
         try:
@@ -212,6 +233,65 @@ class DepthEstimationSkill(TransformSkillBase):
         except Exception as e:
             _log(f"CoreML model download failed: {e}", self._tag)
             raise
+
+    # ── ONNX Runtime backend (Windows/Linux — all GPUs) ────────────────
+
+    def _load_onnx(self, model_name: str, config: dict) -> dict:
+        """Load ONNX model with best available EP: CUDA → TRT → DirectML → CPU."""
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+
+        onnx_cfg = ONNX_CONFIGS.get(model_name)
+        if not onnx_cfg:
+            raise ValueError(f"No ONNX config for model: {model_name}")
+
+        # Download ONNX model from HuggingFace
+        _log(f"Downloading ONNX model: {onnx_cfg['repo']}...", self._tag)
+        model_path = hf_hub_download(onnx_cfg["repo"], onnx_cfg["filename"])
+
+        # Build EP cascade: prefer GPU, fall back to CPU
+        available_eps = ort.get_available_providers()
+        _log(f"Available ONNX EPs: {available_eps}", self._tag)
+
+        ep_priority = [
+            ("CUDAExecutionProvider", "cuda"),
+            ("TensorrtExecutionProvider", "tensorrt"),
+            ("DmlExecutionProvider", "directml"),
+            ("CPUExecutionProvider", "cpu"),
+        ]
+
+        selected_eps = []
+        device_name = "cpu"
+        for ep_name, dev in ep_priority:
+            if ep_name in available_eps:
+                selected_eps.append(ep_name)
+                if device_name == "cpu":
+                    device_name = dev  # first non-CPU EP
+
+        if not selected_eps:
+            selected_eps = ["CPUExecutionProvider"]
+
+        _log(f"Creating ONNX session with EPs: {selected_eps}", self._tag)
+        sess_opts = ort.SessionOptions()
+        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+        self._ort_session = ort.InferenceSession(
+            model_path, sess_options=sess_opts, providers=selected_eps
+        )
+        self._ort_input_name = self._ort_session.get_inputs()[0].name
+        self._ort_input_size = onnx_cfg["input_size"]
+        self.backend = "onnx"
+
+        active_ep = self._ort_session.get_providers()[0]
+        _log(f"ONNX model loaded: {model_name} (EP={active_ep})", self._tag)
+        return {
+            "model": model_name,
+            "device": device_name,
+            "blend_mode": self.blend_mode,
+            "colormap": config.get("colormap", "inferno"),
+            "backend": "onnx",
+            "execution_provider": active_ep,
+        }
 
     # ── TensorRT backend (Windows/Linux NVIDIA) ───────────────────────
 
@@ -392,6 +472,8 @@ class DepthEstimationSkill(TransformSkillBase):
 
         if self.backend == "coreml":
             depth_colored = self._infer_coreml(image)
+        elif self.backend == "onnx":
+            depth_colored = self._infer_onnx(image)
         elif self.backend == "tensorrt":
             depth_colored = self._infer_tensorrt(image)
         else:
@@ -457,6 +539,39 @@ class DepthEstimationSkill(TransformSkillBase):
         d_min, d_max = depth.min(), depth.max()
         depth_norm = ((depth - d_min) / (d_max - d_min + 1e-8) * 255).astype(np.uint8)
         depth_colored = cv2.applyColorMap(depth_norm, self.colormap_id)
+
+        return depth_colored
+
+    def _infer_onnx(self, image):
+        """Run ONNX Runtime inference and return colorized depth map."""
+        import cv2
+        import numpy as np
+
+        original_h, original_w = image.shape[:2]
+        input_h, input_w = self._ort_input_size
+
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(rgb, (input_w, input_h), interpolation=cv2.INTER_LINEAR)
+        img_float = resized.astype(np.float32) / 255.0
+
+        # ImageNet normalization
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        img_float = (img_float - mean) / std
+
+        # HWC → NCHW
+        img_nchw = np.transpose(img_float, (2, 0, 1))[np.newaxis].astype(np.float32)
+
+        # Run inference
+        outputs = self._ort_session.run(None, {self._ort_input_name: img_nchw})
+        depth = outputs[0]
+        depth = np.squeeze(depth)
+
+        # Normalize → uint8 → colormap → resize back
+        d_min, d_max = depth.min(), depth.max()
+        depth_norm = ((depth - d_min) / (d_max - d_min + 1e-8) * 255).astype(np.uint8)
+        depth_colored = cv2.applyColorMap(depth_norm, self.colormap_id)
+        depth_colored = cv2.resize(depth_colored, (original_w, original_h))
 
         return depth_colored
 

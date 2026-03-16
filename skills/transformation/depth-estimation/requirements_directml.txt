@@ -1,9 +1,9 @@
-# Depth Estimation — ONNX Runtime with CUDA Execution Provider (NVIDIA GPUs)
-# Installed by deploy.bat when nvidia-smi is detected.
+# Depth Estimation — ONNX Runtime with DirectML Execution Provider
+# Installed by deploy.bat when AMD/Intel GPU detected (no NVIDIA).
 #
-# onnxruntime-gpu includes both CUDA and TensorRT execution providers.
+# DirectML provides GPU acceleration for AMD, Intel, and Qualcomm GPUs on Windows.
 
-onnxruntime-gpu>=1.17.0
+onnxruntime-directml>=1.17.0
 
 # ── Common dependencies ─────────────────────────────────────────────
 huggingface_hub>=0.20.0

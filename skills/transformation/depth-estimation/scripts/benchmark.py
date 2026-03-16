@@ -151,10 +151,10 @@ def run_coreml_benchmark(args, test_image):
     )
 
 
-# ── PyTorch / TensorRT benchmark (Windows/Linux) ────────────────────────────
+# ── ONNX / TensorRT / PyTorch benchmark (Windows/Linux) ─────────────────
 
-def run_pytorch_benchmark(args, test_image):
-    """Run PyTorch/TensorRT benchmark. Uses transform.py's DepthEstimationSkill."""
+def run_inference_benchmark(args, test_image):
+    """Run non-macOS benchmark. Uses DepthEstimationSkill (auto: ONNX → TRT → PyTorch)."""
     import cv2
     import numpy as np
     from transform import DepthEstimationSkill
@@ -291,10 +291,10 @@ if __name__ == "__main__":
         try:
             result = run_coreml_benchmark(args, test_image)
         except Exception as e:
-            _log(f"CoreML benchmark failed ({e}), falling back to PyTorch")
-            result = run_pytorch_benchmark(args, test_image)
+            _log(f"CoreML benchmark failed ({e}), falling back to ONNX/PyTorch")
+            result = run_inference_benchmark(args, test_image)
     else:
-        result = run_pytorch_benchmark(args, test_image)
+        result = run_inference_benchmark(args, test_image)
 
     if "error" in result:
         _log(f"Benchmark failed: {result['error']}")

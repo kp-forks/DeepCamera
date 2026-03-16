@@ -1,223 +1,123 @@
 @echo off
-REM deploy.bat — Zero-assumption bootstrapper for Depth Estimation Skill (Windows)
-REM
-REM Probes the system for Python, GPU backends, and installs the minimum
-REM viable stack. Called by Aegis skill-runtime-manager during installation.
-REM
-REM Uses skills\lib\env_config.py for hardware detection.
-REM
-REM Exit codes:
-REM   0  = success
-REM   1  = fatal error (no Python found)
-REM   2  = partial success (CPU-only fallback)
-
 setlocal enabledelayedexpansion
+REM ═══════════════════════════════════════════════════════════════════
+REM  Depth Estimation Skill — Windows Deployment (ONNX Runtime)
+REM
+REM  GPU detection cascade:
+REM    1. nvidia-smi found → onnxruntime-gpu (CUDA + TensorRT EPs)
+REM    2. Non-NVIDIA GPU found (WMI) → onnxruntime-directml
+REM    3. No GPU → onnxruntime (CPU)
+REM
+REM  Then downloads ONNX model from HuggingFace.
+REM ═══════════════════════════════════════════════════════════════════
 
-set "SKILL_DIR=%~dp0"
-REM Remove trailing backslash
-if "%SKILL_DIR:~-1%"=="\" set "SKILL_DIR=%SKILL_DIR:~0,-1%"
-set "VENV_DIR=%SKILL_DIR%\.venv"
-set "LOG_PREFIX=[Depth-deploy]"
+echo [DepthDeploy] Starting depth-estimation skill deployment...
+echo [DepthDeploy] Platform: Windows (%PROCESSOR_ARCHITECTURE%)
 
-REM Resolve lib dir (two levels up + lib)
-set "LIB_DIR="
-if exist "%SKILL_DIR%\..\..\lib\env_config.py" (
-    pushd "%SKILL_DIR%\..\..\lib"
-    set "LIB_DIR=!CD!"
-    popd
-)
-
-REM ─── Step 1: Find Python ───────────────────────────────────────────────────
-
-echo %LOG_PREFIX% Searching for Python...>&2
-
+REM ── 1. Find Python ─────────────────────────────────────────────────
 set "PYTHON_CMD="
 
-REM Try the Windows Python launcher (py.exe) first — ships with python.org installer
-for %%V in (3.12 3.11 3.10 3.9) do (
-    if not defined PYTHON_CMD (
-        py -%%V --version >nul 2>&1
-        if !errorlevel! equ 0 (
-            set "PYTHON_CMD=py -%%V"
-        )
-    )
+REM Try py launcher first (most reliable on Windows)
+py --version >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    set "PYTHON_CMD=py"
+    goto :found_python
 )
 
-REM Fallback: bare python3 / python on PATH
-if not defined PYTHON_CMD (
-    python3 --version >nul 2>&1
-    if !errorlevel! equ 0 (
-        REM Verify version >= 3.9
-        for /f "tokens=2 delims= " %%A in ('python3 --version 2^>^&1') do set "_pyver=%%A"
-        for /f "tokens=1,2 delims=." %%A in ("!_pyver!") do (
-            if %%A geq 3 if %%B geq 9 set "PYTHON_CMD=python3"
-        )
-    )
+REM Try python (could be Python 3 on PATH)
+python --version >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    set "PYTHON_CMD=python"
+    goto :found_python
 )
 
-if not defined PYTHON_CMD (
-    python --version >nul 2>&1
-    if !errorlevel! equ 0 (
-        for /f "tokens=2 delims= " %%A in ('python --version 2^>^&1') do set "_pyver=%%A"
-        for /f "tokens=1,2 delims=." %%A in ("!_pyver!") do (
-            if %%A geq 3 if %%B geq 9 set "PYTHON_CMD=python"
-        )
-    )
-)
+echo [DepthDeploy] ERROR: Python not found. Install Python 3.9+ from python.org
+exit /b 1
 
-if not defined PYTHON_CMD (
-    echo %LOG_PREFIX% ERROR: No Python ^>=3.9 found. Install Python 3.9+ and retry.>&2
-    echo {"event": "error", "stage": "python", "message": "No Python >=3.9 found"}
-    exit /b 1
-)
+:found_python
+echo [DepthDeploy] Using Python: %PYTHON_CMD%
+%PYTHON_CMD% --version
 
-for /f "tokens=*" %%A in ('!PYTHON_CMD! --version 2^>^&1') do set "PY_VERSION=%%A"
-echo %LOG_PREFIX% Using Python: %PYTHON_CMD% (%PY_VERSION%)>&2
-echo {"event": "progress", "stage": "python", "message": "Found %PY_VERSION%"}
-
-REM ─── Step 2: Create virtual environment ────────────────────────────────────
-
-if not exist "%VENV_DIR%\Scripts\python.exe" (
-    echo %LOG_PREFIX% Creating virtual environment...>&2
-    %PYTHON_CMD% -m venv "%VENV_DIR%"
-    if !errorlevel! neq 0 (
-        echo %LOG_PREFIX% ERROR: Failed to create virtual environment>&2
-        echo {"event": "error", "stage": "venv", "message": "Failed to create venv"}
+REM ── 2. Create venv ─────────────────────────────────────────────────
+if not exist ".venv\Scripts\python.exe" (
+    echo [DepthDeploy] Creating virtual environment...
+    %PYTHON_CMD% -m venv .venv
+    if %ERRORLEVEL% neq 0 (
+        echo [DepthDeploy] ERROR: Failed to create venv
         exit /b 1
     )
 )
 
-set "PIP=%VENV_DIR%\Scripts\pip.exe"
-set "VPYTHON=%VENV_DIR%\Scripts\python.exe"
+set "VENV_PIP=.venv\Scripts\pip.exe"
+set "VENV_PYTHON=.venv\Scripts\python.exe"
 
-"%PIP%" install --upgrade pip -q >nul 2>&1
+echo [DepthDeploy] Upgrading pip...
+%VENV_PYTHON% -m pip install --upgrade pip >nul 2>&1
 
-echo {"event": "progress", "stage": "venv", "message": "Virtual environment ready"}
+REM ── 3. Detect GPU ──────────────────────────────────────────────────
+echo [DepthDeploy] Detecting GPU hardware...
 
-REM ─── Step 2.5: Bundle env_config.py alongside transform.py ─────────────────
+set "GPU_BACKEND=cpu"
+set "REQUIREMENTS_FILE=requirements_cpu.txt"
 
-if defined LIB_DIR (
-    if exist "%LIB_DIR%\env_config.py" (
-        copy /Y "%LIB_DIR%\env_config.py" "%SKILL_DIR%\scripts\env_config.py" >nul 2>&1
-        echo %LOG_PREFIX% Bundled env_config.py into scripts\>&2
+REM 3a. Check for NVIDIA GPU via nvidia-smi
+nvidia-smi --query-gpu=name --format=csv,noheader,nounits >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    echo [DepthDeploy] NVIDIA GPU detected:
+    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits
+    set "GPU_BACKEND=cuda"
+    set "REQUIREMENTS_FILE=requirements_cuda.txt"
+    goto :gpu_detected
+)
+
+REM 3b. Check for any GPU via WMI (AMD, Intel, Qualcomm)
+for /f "tokens=*" %%G in ('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notlike '*Microsoft*' -and $_.Name -notlike '*Remote*' } | Select-Object -ExpandProperty Name" 2^>nul') do (
+    echo [DepthDeploy] GPU found: %%G
+    set "GPU_BACKEND=directml"
+    set "REQUIREMENTS_FILE=requirements_directml.txt"
+)
+
+:gpu_detected
+echo [DepthDeploy] Selected backend: %GPU_BACKEND%
+echo [DepthDeploy] Requirements: %REQUIREMENTS_FILE%
+
+REM ── 4. Install dependencies ────────────────────────────────────────
+if not exist "%REQUIREMENTS_FILE%" (
+    echo [DepthDeploy] WARNING: %REQUIREMENTS_FILE% not found, falling back to requirements_cpu.txt
+    set "REQUIREMENTS_FILE=requirements_cpu.txt"
+)
+
+echo [DepthDeploy] Installing %REQUIREMENTS_FILE%...
+%VENV_PIP% install -r %REQUIREMENTS_FILE%
+if %ERRORLEVEL% neq 0 (
+    echo [DepthDeploy] WARNING: Install failed for %REQUIREMENTS_FILE%
+    if not "%GPU_BACKEND%"=="cpu" (
+        echo [DepthDeploy] Falling back to CPU requirements...
+        %VENV_PIP% install -r requirements_cpu.txt
     )
 )
 
-REM ─── Step 3: Detect hardware via env_config ────────────────────────────────
+REM ── 5. Download ONNX model ─────────────────────────────────────────
+echo [DepthDeploy] Downloading ONNX model from HuggingFace...
 
-set "BACKEND=cpu"
-
-REM Find env_config.py — bundled copy or repo lib\
-set "ENV_CONFIG_DIR="
-if exist "%SKILL_DIR%\scripts\env_config.py" (
-    set "ENV_CONFIG_DIR=%SKILL_DIR%\scripts"
-) else if defined LIB_DIR (
-    if exist "%LIB_DIR%\env_config.py" (
-        set "ENV_CONFIG_DIR=%LIB_DIR%"
-    )
-)
-
-if defined ENV_CONFIG_DIR (
-    echo %LOG_PREFIX% Detecting hardware via env_config.py...>&2
-
-    REM Run env_config detection via Python (temp file avoids for /f quoting issues)
-    set "ENV_CONFIG_DIR=!ENV_CONFIG_DIR!"
-    set "_TMPBACK=%TEMP%\_aegis_detect_backend.txt"
-    "%VPYTHON%" -c "import sys,os; sys.path.insert(0, os.environ['ENV_CONFIG_DIR']); from env_config import HardwareEnv; env = HardwareEnv.detect(); print(env.backend)" > "!_TMPBACK!" 2>nul
-    if exist "!_TMPBACK!" (
-        set /p DETECTED_BACKEND=<"!_TMPBACK!"
-        del "!_TMPBACK!" 2>nul
-    )
-
-    REM Validate backend value (Windows: only cuda, intel, cpu are realistic)
-    if "!DETECTED_BACKEND!"=="cuda" (
-        set "BACKEND=cuda"
-    ) else if "!DETECTED_BACKEND!"=="intel" (
-        set "BACKEND=intel"
-    ) else if "!DETECTED_BACKEND!"=="cpu" (
-        set "BACKEND=cpu"
-    ) else (
-        echo %LOG_PREFIX% env_config returned '!DETECTED_BACKEND!', falling back to heuristic>&2
-        set "BACKEND=cpu"
-    )
-
-    echo %LOG_PREFIX% env_config detected backend: !BACKEND!>&2
+%VENV_PYTHON% -c "from huggingface_hub import snapshot_download; snapshot_download('onnx-community/depth-anything-v2-small', local_dir='models/onnx/depth-anything-v2-small', allow_patterns=['onnx/*.onnx', 'onnx/*.json', 'preprocessor_config.json', 'config.json'])"
+if %ERRORLEVEL% equ 0 (
+    echo [DepthDeploy] ONNX model downloaded successfully
 ) else (
-    echo %LOG_PREFIX% env_config.py not found, using heuristic detection...>&2
-
-    REM Fallback: inline GPU detection via nvidia-smi
-    where nvidia-smi >nul 2>&1
-    if !errorlevel! equ 0 (
-        for /f "tokens=*" %%G in ('nvidia-smi --query-gpu^=driver_version --format^=csv^,noheader 2^>nul') do (
-            if not "%%G"=="" (
-                set "BACKEND=cuda"
-                echo %LOG_PREFIX% Detected NVIDIA GPU ^(driver: %%G^)>&2
-            )
-        )
-    )
+    echo [DepthDeploy] WARNING: Model download failed — will retry on first run
 )
 
-echo {"event": "progress", "stage": "gpu", "backend": "!BACKEND!", "message": "Compute backend: !BACKEND!"}
+REM ── 6. Verify installation ─────────────────────────────────────────
+echo [DepthDeploy] Verifying ONNX Runtime installation...
 
-REM ─── Step 4: Install requirements ──────────────────────────────────────────
-
-set "REQ_FILE=%SKILL_DIR%\requirements_!BACKEND!.txt"
-
-if not exist "!REQ_FILE!" (
-    echo %LOG_PREFIX% WARNING: !REQ_FILE! not found, falling back to CPU>&2
-    set "REQ_FILE=%SKILL_DIR%\requirements_cpu.txt"
-    set "BACKEND=cpu"
+%VENV_PYTHON% -c "import onnxruntime as ort; eps = ort.get_available_providers(); print(f'[DepthDeploy] Available EPs: {eps}')"
+if %ERRORLEVEL% neq 0 (
+    echo [DepthDeploy] ERROR: ONNX Runtime import failed
+    exit /b 1
 )
 
-echo %LOG_PREFIX% Installing dependencies from !REQ_FILE! ...>&2
-echo {"event": "progress", "stage": "install", "message": "Installing !BACKEND! dependencies..."}
+REM Log detected execution providers
+%VENV_PYTHON% -c "import onnxruntime as ort; eps = ort.get_available_providers(); cuda = 'CUDAExecutionProvider' in eps; trt = 'TensorrtExecutionProvider' in eps; dml = 'DmlExecutionProvider' in eps; print(f'[DepthDeploy] CUDA EP: {cuda}, TensorRT EP: {trt}, DirectML EP: {dml}')"
 
-if "!BACKEND!"=="cuda" (
-    REM CUDA on Windows: install torch with CUDA index, then remaining deps
-    "%PIP%" install torch torchvision --index-url https://download.pytorch.org/whl/cu124 -q 2>&1 | findstr /V "^$" >nul
-    if !errorlevel! neq 0 (
-        echo %LOG_PREFIX% WARNING: CUDA torch install failed, trying cu121...>&2
-        "%PIP%" install torch torchvision --index-url https://download.pytorch.org/whl/cu121 -q 2>&1 | findstr /V "^$" >nul
-    )
-    REM Install remaining requirements (depth-anything-v2, tensorrt, etc.)
-    "%PIP%" install -r "!REQ_FILE!" -q 2>&1 | findstr /V "^$" >nul
-) else (
-    "%PIP%" install -r "!REQ_FILE!" -q 2>&1 | findstr /V "^$" >nul
-)
-
-REM ─── Step 5: Pre-build TensorRT engine (CUDA only) ─────────────────────────
-
-if "!BACKEND!"=="cuda" (
-    echo %LOG_PREFIX% Pre-building TensorRT FP16 engine ^(30-120s one-time build^)...>&2
-    echo {"event": "progress", "stage": "optimize", "message": "Building TensorRT FP16 engine (~30-120s)..."}
-
-    "%VPYTHON%" -c "import sys,os; sys.path.insert(0, '%SKILL_DIR%\\scripts'); from transform import DepthEstimationSkill, PYTORCH_CONFIGS, TRT_CACHE_DIR; import torch; gpu_tag = torch.cuda.get_device_name(0).replace(' ', '_').lower(); cfg = PYTORCH_CONFIGS['depth-anything-v2-small']; engine_path = TRT_CACHE_DIR / f'{cfg[\"filename\"].replace(\".pth\", \"\")}_fp16_{gpu_tag}.trt'; print(f'Engine exists: {engine_path.exists()}') if engine_path.exists() else None; skill = DepthEstimationSkill(); config = {'model': 'depth-anything-v2-small', 'device': 'auto', 'colormap': 'inferno', 'blend_mode': 'depth_only'}; info = skill._load_tensorrt('depth-anything-v2-small', config); print(f'TensorRT engine built: {info}')" 2>&1
-
-    if !errorlevel! equ 0 (
-        echo {"event": "progress", "stage": "optimize", "message": "TensorRT engine built successfully"}
-    ) else (
-        echo %LOG_PREFIX% WARNING: TensorRT build failed, will use PyTorch CUDA at runtime>&2
-        echo {"event": "progress", "stage": "optimize", "message": "TensorRT build failed — PyTorch CUDA fallback"}
-    )
-)
-
-REM ─── Step 6: Verify installation ───────────────────────────────────────────
-
-echo %LOG_PREFIX% Verifying installation...>&2
-
-if defined ENV_CONFIG_DIR (
-    "%VPYTHON%" -c "import sys,os,json; sys.path.insert(0, os.environ['ENV_CONFIG_DIR']); from env_config import HardwareEnv; env = HardwareEnv.detect(); print(json.dumps(env.to_dict(), indent=2))" 2>&1
-) else (
-    "%VPYTHON%" -c "import torch; print(f'torch={torch.__version__}, CUDA={torch.cuda.is_available()}')" 2>&1
-)
-
-"%VPYTHON%" -c "import sys; sys.path.insert(0, '%SKILL_DIR%\\scripts'); from transform import DepthEstimationSkill; print('transform.py: OK')" 2>&1
-if !errorlevel! neq 0 (
-    echo %LOG_PREFIX% WARNING: transform.py import check failed>&2
-)
-
-echo {"event": "complete", "backend": "!BACKEND!", "message": "Depth Estimation skill installed (!BACKEND! backend)"}
-echo %LOG_PREFIX% Done! Backend: !BACKEND!>&2
-
-endlocal
+echo [DepthDeploy] Deployment complete (%GPU_BACKEND% backend)
 exit /b 0
