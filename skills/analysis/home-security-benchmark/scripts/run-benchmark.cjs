@@ -187,7 +187,7 @@ async function llmCall(messages, opts = {}) {
         stream: true,
         ...(model && { model }),
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
-        ...(opts.maxTokens && { max_completion_tokens: opts.maxTokens }),
+        ...(opts.maxTokens && { max_tokens: opts.maxTokens }),
         // Qwen3.5 non-thinking mode recommended params
         ...(opts.expectJSON && opts.temperature === undefined && { temperature: 0.7 }),
         ...(opts.expectJSON && { top_p: 0.8, presence_penalty: 1.5 }),
@@ -1942,7 +1942,6 @@ async function main() {
         const ping = await llmClient.chat.completions.create({
             ...(LLM_MODEL && { model: LLM_MODEL }),
             messages: [{ role: 'user', content: 'ping' }],
-            max_completion_tokens: 5,
         });
         results.model.name = ping.model || 'unknown';
         log(`  Model:    ${results.model.name}`);
