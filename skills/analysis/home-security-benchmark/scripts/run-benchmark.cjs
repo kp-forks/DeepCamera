@@ -178,7 +178,22 @@ async function llmCall(messages, opts = {}) {
             }
             return m;
         });
+        // Append JSON guidance to last user message for local models
+        const lastUser = messages.findLastIndex(m => m.role === 'user');
+        if (lastUser >= 0 && typeof messages[lastUser].content === 'string') {
+            messages[lastUser] = {
+                ...messages[lastUser],
+                content: messages[lastUser].content + '\n\nRespond with ONLY valid JSON, no explanation or markdown.',
+            };
+        }
     }
+
+    // Sanitize messages for llama-server compatibility:
+    // - Replace null content with empty string (llama-server rejects null)
+    messages = messages.map(m => ({
+        ...m,
+        ...(m.content === null && { content: '' }),
+    }));
 
     // Build request params
     const params = {
