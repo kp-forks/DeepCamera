@@ -216,19 +216,20 @@ async function llmCall(messages, opts = {}) {
     // - OpenAI cloud (GPT-5.4+): requires 'max_completion_tokens', rejects 'max_tokens'
     // - Local llama-server: requires 'max_tokens', may not understand 'max_completion_tokens'
     const isCloudApi = !opts.vlm && (LLM_API_TYPE === 'openai' || LLM_BASE_URL.includes('openai.com') || LLM_BASE_URL.includes('api.anthropic'));
-    const maxTokensParam = opts.maxTokens
-        ? (isCloudApi ? { max_completion_tokens: opts.maxTokens } : { max_tokens: opts.maxTokens })
-        : {};
+
+    // No max_tokens for any API — the streaming loop's 2000-token hard cap is the safety net.
+    // Sending max_tokens to thinking models (Qwen3.5) starves actual output since
+    // reasoning_content counts against the limit.
 
     // Build request params
     const params = {
         messages,
         stream: true,
-        // Request token usage in streaming response (supported by OpenAI, some local servers)
-        stream_options: { include_usage: true },
+        // Request token usage in streaming response (only supported by cloud APIs;
+        // llama-server crashes with "Failed to parse input" when stream_options is present)
+        ...(isCloudApi && { stream_options: { include_usage: true } }),
         ...(model && { model }),
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
-        ...maxTokensParam,
         ...(opts.expectJSON && opts.temperature === undefined && { temperature: 0.7 }),
         ...(opts.expectJSON && { top_p: 0.8 }),
         ...(opts.tools && { tools: opts.tools }),
@@ -306,10 +307,10 @@ async function llmCall(messages, opts = {}) {
                 }
 
                 // Smart early abort for JSON-expected tests:
-                // If the model is producing reasoning_content (thinking) for a JSON test,
-                // abort after 100 reasoning tokens — it should output JSON directly.
-                if (opts.expectJSON && !isContent && tokenCount > 100) {
-                    log(`    ⚠ Aborting: ${tokenCount} reasoning tokens for JSON test — model is thinking instead of outputting JSON`);
+                // Allow thinking models (Qwen3.5) up to 500 reasoning tokens before aborting.
+                // They legitimately need to reason before outputting JSON.
+                if (opts.expectJSON && !isContent && tokenCount > 500) {
+                    log(`    ⚠ Aborting: ${tokenCount} reasoning tokens for JSON test — model is thinking too long`);
                     controller.abort();
                     break;
                 }
@@ -356,8 +357,19 @@ async function llmCall(messages, opts = {}) {
 
         // If the model only produced reasoning_content (thinking) with no content,
         // use the reasoning output as the response content for evaluation purposes.
+        // Try to extract JSON from reasoning if this was a JSON-expected call.
         if (!content && reasoningContent) {
-            content = reasoningContent;
+            // Try to find JSON embedded in the reasoning output
+            try {
+                const jsonMatch = reasoningContent.match(/[{\[][\s\S]*[}\]]/); 
+                if (jsonMatch) {
+                    content = jsonMatch[0];
+                } else {
+                    content = reasoningContent;
+                }
+            } catch {
+                content = reasoningContent;
+            }
         }
 
         // Build per-call token data:
@@ -431,14 +443,23 @@ function parseJSON(text) {
     }
     // Clean common local model artifacts before parsing:
     // - Replace literal "..." or "…" placeholders in arrays/values
-    // - Replace <indices> placeholder tags
+    // - Replace <any placeholder text> tags (model echoes prompt templates)
     jsonStr = jsonStr
         .replace(/,\s*\.{3,}\s*(?=[\]},])/g, '')   // trailing ..., before ] } or ,
         .replace(/\.{3,}/g, '"..."')                 // standalone ... → string
         .replace(/…/g, '"..."')                       // ellipsis char
-        .replace(/<[a-z_]+>/gi, '"placeholder"')      // <indices> etc.
+        .replace(/<[^>]+>/g, '"placeholder"')         // <any text> → "placeholder" (multi-word)
         .replace(/,\s*([}\]])/g, '$1');                // trailing commas
-    return JSON.parse(jsonStr.trim());
+    try {
+        return JSON.parse(jsonStr.trim());
+    } catch (firstErr) {
+        // Aggressive retry: strip all non-JSON artifacts
+        const aggressive = jsonStr
+            .replace(/"placeholder"(\s*"placeholder")*/g, '"placeholder"')  // collapse repeated placeholders
+            .replace(/\bplaceholder\b/g, '""')        // placeholder → empty string
+            .replace(/,\s*([}\]])/g, '$1');            // re-clean trailing commas
+        return JSON.parse(aggressive.trim());
+    }
 }
 
 function assert(condition, msg) {
@@ -520,11 +541,7 @@ ${userMessage}
 3. Always keep the last 2 user messages (most recent context)
 4. Keep system messages (they contain tool results)
 
-## Response Format
-Respond with ONLY a valid JSON object, no other text:
-{"keep": [<actual index numbers from the list above>], "summary": "<summary of what was dropped>"}
-
-Example: if keeping messages at indices 0, 18, 22 → {"keep": [0, 18, 22], "summary": "Removed 4 duplicate 'what happened today' questions"}
+Respond with ONLY valid JSON: {"keep": [0, 18, 22], "summary": "Removed 4 duplicate questions"}
 If nothing should be dropped, keep ALL indices and set summary to "".`;
 }
 
@@ -2026,7 +2043,7 @@ async function main() {
         log(`     Base URL: ${llmBaseUrl}`);
         log('     Check that the LLM server is running.\n');
         emit({ event: 'error', message: `Cannot reach LLM endpoint: ${err.message}` });
-        process.exit(1);
+        process.exit(IS_SKILL_MODE ? 0 : 1);
     }
 
     // Collect system info
@@ -2169,7 +2186,7 @@ if (isDirectRun) {
     main().catch(err => {
         log(`Fatal: ${err.message}`);
         emit({ event: 'error', message: err.message });
-        process.exit(1);
+        process.exit(IS_SKILL_MODE ? 0 : 1);
     });
 }
 
