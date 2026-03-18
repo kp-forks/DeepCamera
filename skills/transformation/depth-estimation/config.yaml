@@ -3,6 +3,12 @@
 # Format: params[] with key, type, label, default, description, options
 
 params:
+  - key: auto_start
+    label: Auto Start
+    type: boolean
+    default: true
+    description: "Start this skill automatically when Aegis launches"
+
   - key: model
     label: Depth Model
     type: select
