@@ -537,6 +537,27 @@ function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName
 
         // Build a temporary index with just the live file
         const indexFile = path.join(RESULTS_DIR, 'index.json');
+
+        // Compute live performance summary from accumulated data
+        const ttftArr = [...results.perfTotals.ttftMs];
+        const decArr = [...results.perfTotals.decodeTokensPerSec];
+        const livePerfSummary = (ttftArr.length > 0 || decArr.length > 0) ? {
+            ttft: ttftArr.length > 0 ? {
+                avgMs: Math.round(ttftArr.reduce((a, b) => a + b, 0) / ttftArr.length),
+                p50Ms: [...ttftArr].sort((a, b) => a - b)[Math.floor(ttftArr.length * 0.5)],
+                p95Ms: [...ttftArr].sort((a, b) => a - b)[Math.floor(ttftArr.length * 0.95)],
+                samples: ttftArr.length,
+            } : null,
+            decode: decArr.length > 0 ? {
+                avgTokensPerSec: parseFloat((decArr.reduce((a, b) => a + b, 0) / decArr.length).toFixed(1)),
+                samples: decArr.length,
+            } : null,
+            server: {
+                prefillTokensPerSec: results.perfTotals.prefillTokensPerSec,
+                decodeTokensPerSec: results.perfTotals.serverDecodeTokensPerSec,
+            },
+        } : null;
+
         const liveIndex = [{
             file: '_live_progress.json',
             model: results.model.name || 'loading...',
@@ -550,7 +571,7 @@ function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName
             vlmPassed: 0, vlmTotal: 0,
             timeMs: Date.now() - new Date(startedAt).getTime(),
             tokens: results.tokenTotals.total,
-            perfSummary: null,
+            perfSummary: livePerfSummary,
         }];
         fs.writeFileSync(indexFile, JSON.stringify(liveIndex, null, 2));
 
