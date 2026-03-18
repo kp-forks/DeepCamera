@@ -505,8 +505,79 @@ function assert(condition, msg) {
     if (!condition) throw new Error(msg || 'Assertion failed');
 }
 
+// ─── Live progress: intermediate saves + report regeneration ────────────────
+let _liveReportOpened = false;
+
+/**
+ * Save the current (in-progress) results to disk and regenerate the live report.
+ * Called after each suite completes so the browser auto-refreshes with updated data.
+ */
+function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName) {
+    try {
+        fs.mkdirSync(RESULTS_DIR, { recursive: true });
+
+        // Save current results as a live file (will be overwritten each time)
+        const liveFile = path.join(RESULTS_DIR, '_live_progress.json');
+        const liveResults = {
+            ...results,
+            _live: true,
+            _progress: { suitesCompleted, totalSuites, startedAt },
+        };
+        fs.writeFileSync(liveFile, JSON.stringify(liveResults, null, 2));
+
+        // Build a temporary index with just the live file
+        const indexFile = path.join(RESULTS_DIR, 'index.json');
+        const liveIndex = [{
+            file: '_live_progress.json',
+            model: results.model.name || 'loading...',
+            vlm: results.model.vlm || null,
+            timestamp: results.timestamp,
+            passed: results.totals.passed,
+            failed: results.totals.failed,
+            total: results.totals.total,
+            llmPassed: results.totals.passed, // Simplified for live view
+            llmTotal: results.totals.total,
+            vlmPassed: 0, vlmTotal: 0,
+            timeMs: Date.now() - new Date(startedAt).getTime(),
+            tokens: results.tokenTotals.total,
+            perfSummary: null,
+        }];
+        fs.writeFileSync(indexFile, JSON.stringify(liveIndex, null, 2));
+
+        // Regenerate report in live mode
+        const reportScript = path.join(__dirname, 'generate-report.cjs');
+        // Clear require cache to pick up any code changes
+        delete require.cache[require.resolve(reportScript)];
+        const { generateReport } = require(reportScript);
+        const reportPath = generateReport(RESULTS_DIR, {
+            liveMode: true,
+            liveStatus: {
+                suitesCompleted,
+                totalSuites,
+                currentSuite: nextSuiteName || 'Finishing...',
+                startedAt,
+            },
+        });
+
+        // Open browser on first save (so user sees live progress from the start)
+        if (!_liveReportOpened && !NO_OPEN && !IS_SKILL_MODE && reportPath) {
+            try {
+                const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+                execSync(`${openCmd} "${reportPath}"`, { stdio: 'ignore' });
+                log('  📊 Live report opened in browser (auto-refreshes every 5s)');
+            } catch { }
+            _liveReportOpened = true;
+        }
+    } catch (err) {
+        // Non-fatal — live progress is a nice-to-have
+        log(`  ⚠️  Live progress update failed: ${err.message}`);
+    }
+}
+
 async function runSuites() {
-    for (const s of suites) {
+    const startedAt = new Date().toISOString();
+    for (let si = 0; si < suites.length; si++) {
+        const s = suites[si];
         currentSuite = { name: s.name, tests: [], passed: 0, failed: 0, skipped: 0, timeMs: 0 };
         log(`\n${'─'.repeat(60)}`);
         log(`  ${s.name}`);
@@ -522,12 +593,16 @@ async function runSuites() {
         results.totals.total += currentSuite.tests.length;
 
         emit({ event: 'suite_end', suite: s.name, passed: currentSuite.passed, failed: currentSuite.failed, skipped: currentSuite.skipped, timeMs: currentSuite.timeMs });
+
+        // Live progress: save intermediate results + regenerate report after each suite
+        saveLiveProgress(startedAt, si + 1, suites.length, si + 1 < suites.length ? suites[si + 1]?.name : null);
     }
 }
 
 // ─── Per-test token + perf accumulators (set by test(), read by llmCall) ──────
 let _currentTestTokens = null;
 let _currentTestPerf = null;
+let _vlmTestMeta = null; // VLM fixture metadata (set during VLM tests, read after test() completes)
 
 async function test(name, fn) {
     const testResult = { name, status: 'pass', timeMs: 0, detail: '', tokens: { prompt: 0, completion: 0, total: 0 }, perf: {} };
@@ -2025,18 +2100,37 @@ suite('📸 VLM Scene Analysis', async () => {
             const framePath = path.join(FIXTURES_DIR, 'frames', t.file);
             if (!fs.existsSync(framePath)) { skip(t.name, `File missing: ${t.file}`); return; }
             const desc = await vlmAnalyze(framePath, t.prompt);
-            if (t.expect === null) {
-                // Just check we got a meaningful response
-                assert(desc.length > 20, `Response too short: ${desc.length} chars`);
-                return `${desc.length} chars ✓`;
-            }
-            const lower = desc.toLowerCase();
-            const matched = t.expect.some(term => lower.includes(term));
-            assert(matched,
-                `Expected one of [${t.expect.slice(0, 4).join(', ')}...] in: "${desc.slice(0, 80)}"`);
-            const hits = t.expect.filter(term => lower.includes(term));
-            return `${desc.length} chars, matched: ${hits.join(', ')} ✓`;
+
+            // Save fixture filename + VLM response for Vision tab in report
+            const lastTest = currentSuite.tests.length > 0 ? null : undefined; // will be set after push
+            // Attach after test() pushes — use a post-hook via the return
+            const result = (() => {
+                if (t.expect === null) {
+                    assert(desc.length > 20, `Response too short: ${desc.length} chars`);
+                    return `${desc.length} chars ✓`;
+                }
+                const lower = desc.toLowerCase();
+                const matched = t.expect.some(term => lower.includes(term));
+                assert(matched,
+                    `Expected one of [${t.expect.slice(0, 4).join(', ')}...] in: "${desc.slice(0, 80)}"`);
+                const hits = t.expect.filter(term => lower.includes(term));
+                return `${desc.length} chars, matched: ${hits.join(', ')} ✓`;
+            })();
+
+            // Stash fixture + response on the test result (test() pushes to currentSuite.tests)
+            // We set it as a closure-accessible value; the test() function reads the return value.
+            // After test() completes, we patch the last test entry with VLM metadata.
+            _vlmTestMeta = { fixture: t.file, vlmResponse: desc.slice(0, 300), prompt: t.prompt };
+            return result;
         });
+        // Patch the last pushed test with VLM metadata (fixture filename + response preview)
+        if (_vlmTestMeta && currentSuite.tests.length > 0) {
+            const lastTest = currentSuite.tests[currentSuite.tests.length - 1];
+            lastTest.fixture = _vlmTestMeta.fixture;
+            lastTest.vlmResponse = _vlmTestMeta.vlmResponse;
+            lastTest.vlmPrompt = _vlmTestMeta.prompt;
+            _vlmTestMeta = null;
+        }
     }
 });
 
@@ -2233,16 +2327,18 @@ async function main() {
 
     // Save results
     fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    // Clean up live progress file (replaced by final results)
+    try { fs.unlinkSync(path.join(RESULTS_DIR, '_live_progress.json')); } catch { }
     const modelSlug = (results.model.name || 'unknown').replace(/[^a-zA-Z0-9_.-]/g, '_');
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const resultFile = path.join(RESULTS_DIR, `${modelSlug}_${ts}.json`);
     fs.writeFileSync(resultFile, JSON.stringify(results, null, 2));
     log(`\n  Results saved: ${resultFile}`);
 
-    // Update index
+    // Update index (filter out any live progress entries)
     const indexFile = path.join(RESULTS_DIR, 'index.json');
     let index = [];
-    try { index = JSON.parse(fs.readFileSync(indexFile, 'utf8')); } catch { }
+    try { index = JSON.parse(fs.readFileSync(indexFile, 'utf8')).filter(e => e.file !== '_live_progress.json'); } catch { }
     // Compute LLM vs VLM split (only count image analysis suites as VLM)
     const isVlmImageSuite = (name) => name.includes('VLM Scene') || name.includes('📸');
     const vlmSuites = results.suites.filter(s => isVlmImageSuite(s.name));
@@ -2265,16 +2361,19 @@ async function main() {
     });
     fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
 
-    // Always generate report (skip only on explicit --no-open with no --report flag)
+    // Always generate final report (without live mode) 
     let reportPath = null;
     log('\n  Generating HTML report...');
     try {
         const reportScript = path.join(__dirname, 'generate-report.cjs');
+        // Clear require cache to get latest version  
+        delete require.cache[require.resolve(reportScript)];
         reportPath = require(reportScript).generateReport(RESULTS_DIR);
         log(`  ✅ Report: ${reportPath}`);
 
         // Auto-open in browser — only in standalone mode (Aegis handles its own opening)
-        if (!NO_OPEN && !IS_SKILL_MODE && reportPath) {
+        // Skip if live mode already opened the browser earlier
+        if (!_liveReportOpened && !NO_OPEN && !IS_SKILL_MODE && reportPath) {
             try {
                 const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
                 execSync(`${openCmd} "${reportPath}"`, { stdio: 'ignore' });
