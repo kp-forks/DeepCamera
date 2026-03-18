@@ -509,6 +509,14 @@ function renderPerformance() {
     html += statCard('Server Decode', fmt(srvDecode), 'tok/s', 'From llama-server /metrics');
     html += statCard('Total Time', fmt(totalTime / 1000), 's', run.total + ' tests');
     html += statCard('Throughput', fmt(tokPerSec), 'tok/s', fmtK(run.tokens || 0) + ' total tokens');
+
+    // GPU & Memory cards (from resource samples)
+    const res = perf?.resource;
+    if (res) {
+        html += statCard('GPU Utilization', res.gpu ? res.gpu.util + '' : '—', '%', res.gpu ? 'Renderer: ' + res.gpu.renderer + '% · Tiler: ' + res.gpu.tiler + '%' : 'MPS not available');
+        html += statCard('GPU Memory', res.gpu?.memUsedGB != null ? fmt(res.gpu.memUsedGB) : '—', 'GB', res.gpu?.memAllocGB != null ? 'Alloc: ' + fmt(res.gpu.memAllocGB) + ' GB' : 'MPS not available');
+        html += statCard('System Memory', fmt(res.sys?.usedGB), 'GB', 'of ' + fmt(res.sys?.totalGB) + ' GB total · Free: ' + fmt(res.sys?.freeGB) + ' GB');
+    }
     html += '</div>';
 
     // Comparison table if multiple selected

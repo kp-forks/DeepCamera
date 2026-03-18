@@ -157,6 +157,7 @@ const results = {
     totals: { passed: 0, failed: 0, skipped: 0, total: 0, timeMs: 0 },
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
     perfTotals: { ttftMs: [], decodeTokensPerSec: [], prefillTokensPerSec: null, serverDecodeTokensPerSec: null },
+    resourceSamples: [],  // GPU/memory snapshots taken after each suite
 };
 
 async function llmCall(messages, opts = {}) {
@@ -505,6 +506,52 @@ function assert(condition, msg) {
     if (!condition) throw new Error(msg || 'Assertion failed');
 }
 
+// ─── Resource Metrics (GPU/MPS + Memory) ─────────────────────────────────────
+
+/**
+ * Sample GPU (Apple Silicon MPS) utilization and system memory.
+ * Uses `ioreg` for GPU stats (no sudo needed).
+ */
+function sampleResourceMetrics() {
+    const os = require('os');
+    const sample = {
+        timestamp: new Date().toISOString(),
+        sys: {
+            totalGB: parseFloat((os.totalmem() / 1073741824).toFixed(1)),
+            freeGB: parseFloat((os.freemem() / 1073741824).toFixed(1)),
+            usedGB: parseFloat(((os.totalmem() - os.freemem()) / 1073741824).toFixed(1)),
+        },
+        process: {
+            rssMB: parseFloat((process.memoryUsage().rss / 1048576).toFixed(0)),
+        },
+        gpu: null,
+    };
+
+    // Apple Silicon GPU via ioreg (macOS only)
+    if (process.platform === 'darwin') {
+        try {
+            const out = execSync('ioreg -r -c AGXAccelerator 2>/dev/null', { encoding: 'utf8', timeout: 3000 });
+            const m = (key) => { const r = new RegExp('"' + key + '"=(\\d+)'); const match = out.match(r); return match ? parseInt(match[1]) : null; };
+            const deviceUtil = m('Device Utilization %');
+            const rendererUtil = m('Renderer Utilization %');
+            const tilerUtil = m('Tiler Utilization %');
+            const memUsed = m('In use system memory');
+            const memAlloc = m('Alloc system memory');
+            if (deviceUtil !== null) {
+                sample.gpu = {
+                    util: deviceUtil,
+                    renderer: rendererUtil,
+                    tiler: tilerUtil,
+                    memUsedGB: memUsed ? parseFloat((memUsed / 1073741824).toFixed(1)) : null,
+                    memAllocGB: memAlloc ? parseFloat((memAlloc / 1073741824).toFixed(1)) : null,
+                };
+            }
+        } catch { /* ioreg not available or timed out */ }
+    }
+
+    return sample;
+}
+
 // ─── Live progress: intermediate saves + report regeneration ────────────────
 let _liveReportOpened = false;
 let _runStartedAt = null;     // Set when runSuites() begins
@@ -556,6 +603,7 @@ function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName
                 prefillTokensPerSec: results.perfTotals.prefillTokensPerSec,
                 decodeTokensPerSec: results.perfTotals.serverDecodeTokensPerSec,
             },
+            resource: results.resourceSamples.length > 0 ? results.resourceSamples[results.resourceSamples.length - 1] : null,
         } : null;
 
         // Preserve previous runs in index for comparison sidebar
@@ -640,6 +688,11 @@ async function runSuites() {
         results.totals.total += currentSuite.tests.length;
 
         emit({ event: 'suite_end', suite: s.name, passed: currentSuite.passed, failed: currentSuite.failed, skipped: currentSuite.skipped, timeMs: currentSuite.timeMs });
+
+        // Sample resource metrics (GPU + memory) after each suite
+        const resourceSample = sampleResourceMetrics();
+        resourceSample.suite = s.name;
+        results.resourceSamples.push(resourceSample);
 
         // Scrape server metrics after each suite so live perf cards update
         await scrapeServerMetrics();
