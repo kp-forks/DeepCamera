@@ -861,11 +861,25 @@ function saveState() {
     try {
         sessionStorage.setItem('_bench_tab', getActiveTab());
         sessionStorage.setItem('_bench_scroll', String(window.scrollY));
+        sessionStorage.setItem('_bench_selected', JSON.stringify([...selectedIndices]));
+        sessionStorage.setItem('_bench_primary', String(primaryIndex));
     } catch {}
 }
 
 function restoreState() {
     try {
+        // Restore selection
+        const savedSel = sessionStorage.getItem('_bench_selected');
+        if (savedSel) {
+            const arr = JSON.parse(savedSel).filter(i => i >= 0 && i < ALL_RUNS.length);
+            if (arr.length > 0) { selectedIndices = new Set(arr); }
+        }
+        const savedPrimary = sessionStorage.getItem('_bench_primary');
+        if (savedPrimary != null) {
+            const pi = parseInt(savedPrimary);
+            if (pi >= 0 && pi < ALL_RUNS.length) primaryIndex = pi;
+        }
+        // Restore tab
         const tab = sessionStorage.getItem('_bench_tab');
         if (tab && tab !== 'performance') {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
