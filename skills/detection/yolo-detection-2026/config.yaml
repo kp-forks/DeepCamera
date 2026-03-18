@@ -6,7 +6,7 @@ params:
   - key: auto_start
     label: Auto Start
     type: boolean
-    default: false
+    default: true
     description: "Start this skill automatically when Aegis launches"
 
   - key: model_size

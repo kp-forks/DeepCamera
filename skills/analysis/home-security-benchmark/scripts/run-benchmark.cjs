@@ -156,6 +156,7 @@ const results = {
     suites: [],
     totals: { passed: 0, failed: 0, skipped: 0, total: 0, timeMs: 0 },
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
+    perfTotals: { ttftMs: [], decodeTokensPerSec: [], prefillTokensPerSec: null, serverDecodeTokensPerSec: null },
 };
 
 async function llmCall(messages, opts = {}) {
@@ -197,9 +198,12 @@ async function llmCall(messages, opts = {}) {
     messages = messages.map(m => {
         if (m.role === 'assistant' && m.tool_calls) {
             // Convert tool call to text representation
-            const callDesc = m.tool_calls.map(tc =>
-                `[Calling ${tc.function.name}(${tc.function.arguments})]`
-            ).join('\n');
+            const callDesc = m.tool_calls.map(tc => {
+                const argStr = typeof tc.function.arguments === 'string'
+                    ? tc.function.arguments
+                    : JSON.stringify(tc.function.arguments);
+                return `[Calling ${tc.function.name}(${argStr})]`;
+            }).join('\n');
             return { role: 'assistant', content: callDesc };
         }
         if (m.role === 'tool') {
@@ -269,6 +273,7 @@ async function llmCall(messages, opts = {}) {
         }
     }
 
+    const callStartTime = Date.now();
     try {
         const stream = await client.chat.completions.create(params, {
             signal: controller.signal,
@@ -281,6 +286,7 @@ async function llmCall(messages, opts = {}) {
         let usage = {};
         let tokenCount = 0;
         let tokenBuffer = '';
+        let firstTokenTime = null;  // For TTFT measurement
 
         for await (const chunk of stream) {
             resetIdle();
@@ -292,6 +298,8 @@ async function llmCall(messages, opts = {}) {
             if (delta?.reasoning_content) reasoningContent += delta.reasoning_content;
             if (delta?.content || delta?.reasoning_content) {
                 tokenCount++;
+                // Capture TTFT on first content/reasoning token
+                if (!firstTokenTime) firstTokenTime = Date.now();
                 // Buffer and log tokens — tag with field source
                 const isContent = !!delta?.content;
                 const tok = delta?.content || delta?.reasoning_content || '';
@@ -345,7 +353,12 @@ async function llmCall(messages, opts = {}) {
                         toolCalls[idx] = { id: tc.id, type: tc.type || 'function', function: { name: '', arguments: '' } };
                     }
                     if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
-                    if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+                    if (tc.function?.arguments) {
+                        const chunk = typeof tc.function.arguments === 'string'
+                            ? tc.function.arguments
+                            : JSON.stringify(tc.function.arguments);
+                        toolCalls[idx].function.arguments += chunk;
+                    }
                 }
             }
 
@@ -379,6 +392,22 @@ async function llmCall(messages, opts = {}) {
         const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
         const callTokens = { prompt: promptTokens, completion: completionTokens, total: totalTokens };
 
+        // ─── Performance metrics ───
+        const callEndTime = Date.now();
+        const totalElapsedMs = callEndTime - callStartTime;
+        const ttftMs = firstTokenTime ? (firstTokenTime - callStartTime) : null;
+        // Decode throughput: tokens generated / time spent generating (after first token)
+        const decodeMs = firstTokenTime ? (callEndTime - firstTokenTime) : 0;
+        const decodeTokensPerSec = (decodeMs > 0 && tokenCount > 1)
+            ? ((tokenCount - 1) / (decodeMs / 1000))  // -1 because first token is the TTFT boundary
+            : null;
+
+        const callPerf = {
+            ttftMs,
+            decodeTokensPerSec: decodeTokensPerSec ? parseFloat(decodeTokensPerSec.toFixed(1)) : null,
+            totalElapsedMs,
+        };
+
         // Track global token totals
         results.tokenTotals.prompt += callTokens.prompt;
         results.tokenTotals.completion += callTokens.completion;
@@ -391,6 +420,16 @@ async function llmCall(messages, opts = {}) {
             _currentTestTokens.total += callTokens.total;
         }
 
+        // Track per-test perf (accumulated across multiple llmCall invocations within one test)
+        if (_currentTestPerf) {
+            if (ttftMs !== null) _currentTestPerf.ttftMs.push(ttftMs);
+            if (decodeTokensPerSec !== null) _currentTestPerf.decodeTokensPerSec.push(decodeTokensPerSec);
+        }
+
+        // Track global perf totals
+        if (ttftMs !== null) results.perfTotals.ttftMs.push(ttftMs);
+        if (decodeTokensPerSec !== null) results.perfTotals.decodeTokensPerSec.push(decodeTokensPerSec);
+
         // Capture model name from first response
         if (opts.vlm) {
             if (!results.model.vlm && model) results.model.vlm = model;
@@ -398,7 +437,7 @@ async function llmCall(messages, opts = {}) {
             if (!results.model.name && model) results.model.name = model;
         }
 
-        return { content, toolCalls, usage: callTokens, model };
+        return { content, toolCalls, usage: callTokens, perf: callPerf, model };
     } finally {
         clearTimeout(idleTimer);
     }
@@ -486,33 +525,47 @@ async function runSuites() {
     }
 }
 
-// ─── Per-test token accumulator (set by test(), read by llmCall) ──────────────
+// ─── Per-test token + perf accumulators (set by test(), read by llmCall) ──────
 let _currentTestTokens = null;
+let _currentTestPerf = null;
 
 async function test(name, fn) {
-    const testResult = { name, status: 'pass', timeMs: 0, detail: '', tokens: { prompt: 0, completion: 0, total: 0 } };
+    const testResult = { name, status: 'pass', timeMs: 0, detail: '', tokens: { prompt: 0, completion: 0, total: 0 }, perf: {} };
     _currentTestTokens = { prompt: 0, completion: 0, total: 0 };
+    _currentTestPerf = { ttftMs: [], decodeTokensPerSec: [] };
     const start = Date.now();
     try {
         const detail = await fn();
         testResult.timeMs = Date.now() - start;
         testResult.detail = detail || '';
         testResult.tokens = { ..._currentTestTokens };
+        // Compute aggregate perf for this test (may span multiple llmCall invocations)
+        testResult.perf = {
+            ttftMs: _currentTestPerf.ttftMs.length > 0 ? Math.round(_currentTestPerf.ttftMs.reduce((a, b) => a + b, 0) / _currentTestPerf.ttftMs.length) : null,
+            decodeTokensPerSec: _currentTestPerf.decodeTokensPerSec.length > 0 ? parseFloat((_currentTestPerf.decodeTokensPerSec.reduce((a, b) => a + b, 0) / _currentTestPerf.decodeTokensPerSec.length).toFixed(1)) : null,
+        };
         currentSuite.passed++;
         const tokInfo = _currentTestTokens.total > 0 ? `, ${_currentTestTokens.total} tok` : '';
-        log(`  ✅ ${name} (${testResult.timeMs}ms${tokInfo})${detail ? ` — ${detail}` : ''}`);
+        const perfInfo = testResult.perf.ttftMs !== null ? `, TTFT ${testResult.perf.ttftMs}ms` : '';
+        const tpsInfo = testResult.perf.decodeTokensPerSec !== null ? `, ${testResult.perf.decodeTokensPerSec} tok/s` : '';
+        log(`  ✅ ${name} (${testResult.timeMs}ms${tokInfo}${perfInfo}${tpsInfo})${detail ? ` — ${detail}` : ''}`);
     } catch (err) {
         testResult.timeMs = Date.now() - start;
         testResult.status = 'fail';
         testResult.detail = err.message;
         testResult.tokens = { ..._currentTestTokens };
+        testResult.perf = {
+            ttftMs: _currentTestPerf.ttftMs.length > 0 ? Math.round(_currentTestPerf.ttftMs.reduce((a, b) => a + b, 0) / _currentTestPerf.ttftMs.length) : null,
+            decodeTokensPerSec: _currentTestPerf.decodeTokensPerSec.length > 0 ? parseFloat((_currentTestPerf.decodeTokensPerSec.reduce((a, b) => a + b, 0) / _currentTestPerf.decodeTokensPerSec.length).toFixed(1)) : null,
+        };
         currentSuite.failed++;
         log(`  ❌ ${name} (${testResult.timeMs}ms) — ${err.message}`);
     }
     _currentTestTokens = null;
+    _currentTestPerf = null;
     currentSuite.timeMs += testResult.timeMs;
     currentSuite.tests.push(testResult);
-    emit({ event: 'test_result', suite: currentSuite.name, test: name, status: testResult.status, timeMs: testResult.timeMs, detail: testResult.detail.slice(0, 120), tokens: testResult.tokens });
+    emit({ event: 'test_result', suite: currentSuite.name, test: name, status: testResult.status, timeMs: testResult.timeMs, detail: testResult.detail.slice(0, 120), tokens: testResult.tokens, perf: testResult.perf });
 }
 
 function skip(name, reason) {
@@ -2010,6 +2063,52 @@ function collectSystemInfo() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SERVER METRICS SCRAPER (llama-server Prometheus /metrics endpoint)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Scrape llama-server /metrics endpoint for server-side performance stats.
+ * Requires llama-server to be launched with --metrics flag.
+ * Extracts: prompt_tokens_seconds (prefill tok/s), predicted_tokens_seconds (decode tok/s)
+ */
+async function scrapeServerMetrics() {
+    // Try LLM server first, then VLM server
+    const ports = [
+        { name: 'LLM', url: LLM_URL || GATEWAY_URL },
+        ...(VLM_URL ? [{ name: 'VLM', url: VLM_URL }] : []),
+    ];
+
+    for (const { name, url } of ports) {
+        try {
+            const base = url.replace(/\/v1\/?$/, '');
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000);
+            const res = await fetch(`${base}/metrics`, { signal: controller.signal });
+            clearTimeout(timeout);
+
+            if (!res.ok) continue;
+            const text = await res.text();
+
+            // Parse Prometheus text format for our metrics
+            const prefillMatch = text.match(/llamacpp:prompt_tokens_seconds\s+([\d.]+)/);
+            const decodeMatch = text.match(/llamacpp:predicted_tokens_seconds\s+([\d.]+)/);
+
+            if (prefillMatch || decodeMatch) {
+                const prefill = prefillMatch ? parseFloat(parseFloat(prefillMatch[1]).toFixed(1)) : null;
+                const decode = decodeMatch ? parseFloat(parseFloat(decodeMatch[1]).toFixed(1)) : null;
+                results.perfTotals.prefillTokensPerSec = prefill;
+                results.perfTotals.serverDecodeTokensPerSec = decode;
+                log(`  📊 ${name} server metrics: prefill ${prefill || '?'} tok/s, decode ${decode || '?'} tok/s`);
+                return; // Got metrics from at least one server
+            }
+        } catch (_) {
+            // /metrics not available — server not started with --metrics flag
+        }
+    }
+    log('  ℹ️  Server /metrics not available (start with --metrics for server-side stats)');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN RUNNER
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2083,14 +2182,44 @@ async function main() {
         heapUsed: (postMem.heapUsed / 1048576).toFixed(1),
     };
 
+    // Scrape llama-server /metrics for server-side prefill/decode stats
+    await scrapeServerMetrics();
+
     // Summary
     const { passed, failed, skipped, total, timeMs } = results.totals;
     const tokPerSec = timeMs > 0 ? ((results.tokenTotals.total / (timeMs / 1000)).toFixed(1)) : '?';
+
+    // Compute aggregate perf stats
+    const ttftArr = results.perfTotals.ttftMs;
+    const avgTtft = ttftArr.length > 0 ? Math.round(ttftArr.reduce((a, b) => a + b, 0) / ttftArr.length) : null;
+    const p50Ttft = ttftArr.length > 0 ? ttftArr.sort((a, b) => a - b)[Math.floor(ttftArr.length * 0.5)] : null;
+    const p95Ttft = ttftArr.length > 0 ? ttftArr.sort((a, b) => a - b)[Math.floor(ttftArr.length * 0.95)] : null;
+    const decArr = results.perfTotals.decodeTokensPerSec;
+    const avgDecode = decArr.length > 0 ? parseFloat((decArr.reduce((a, b) => a + b, 0) / decArr.length).toFixed(1)) : null;
+
+    // Store computed aggregates
+    results.perfSummary = {
+        ttft: { avgMs: avgTtft, p50Ms: p50Ttft, p95Ms: p95Ttft, samples: ttftArr.length },
+        decode: { avgTokensPerSec: avgDecode, samples: decArr.length },
+        server: {
+            prefillTokensPerSec: results.perfTotals.prefillTokensPerSec,
+            decodeTokensPerSec: results.perfTotals.serverDecodeTokensPerSec,
+        },
+    };
 
     log(`\n${'═'.repeat(66)}`);
     log(`  RESULTS: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped (${(timeMs / 1000).toFixed(1)}s)`);
     log(`  TOKENS:  ${results.tokenTotals.prompt} prompt + ${results.tokenTotals.completion} completion = ${results.tokenTotals.total} total (${tokPerSec} tok/s)`);
     log(`  MODEL:   ${results.model.name}${results.model.vlm ? ' | VLM: ' + results.model.vlm : ''}`);
+    if (avgTtft !== null) {
+        log(`  TTFT:    avg ${avgTtft}ms | p50 ${p50Ttft}ms | p95 ${p95Ttft}ms (${ttftArr.length} samples)`);
+    }
+    if (avgDecode !== null) {
+        log(`  DECODE:  ${avgDecode} tok/s avg (${decArr.length} samples)`);
+    }
+    if (results.perfTotals.prefillTokensPerSec !== null) {
+        log(`  SERVER:  prefill ${results.perfTotals.prefillTokensPerSec} tok/s | decode ${results.perfTotals.serverDecodeTokensPerSec} tok/s (from /metrics)`);
+    }
     log(`${'═'.repeat(66)}`);
 
     if (failed > 0) {
@@ -2132,6 +2261,7 @@ async function main() {
         vlmPassed, vlmTotal,
         timeMs,
         tokens: results.tokenTotals.total,
+        perfSummary: results.perfSummary || null,
     });
     fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
 
