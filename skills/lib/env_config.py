@@ -58,11 +58,12 @@ BACKEND_SPECS = {
     ),
     "mps": BackendSpec(
         name="mps",
-        export_format="coreml",
-        model_suffix=".mlpackage",
-        half=True,
-        extra_export_args={"nms": False},
-        compute_units="cpu_and_ne",  # Route to Neural Engine, leave GPU free for LLM/VLM
+        export_format="onnx",
+        model_suffix=".onnx",
+        half=False,  # ONNX Runtime handles precision internally
+        # ONNX Runtime + CoreMLExecutionProvider bypasses the broken
+        # MPSGraphExecutable MLIR pipeline on macOS 26.x while still
+        # leveraging GPU/ANE via CoreML under the hood.
     ),
     "intel": BackendSpec(
         name="intel",
@@ -77,6 +78,106 @@ BACKEND_SPECS = {
         half=False,
     ),
 }
+
+# ─── ONNX + CoreML EP wrapper ────────────────────────────────────────────────
+# Provides an ultralytics-compatible model interface using onnxruntime directly
+# with CoreMLExecutionProvider for ~6ms inference on Apple Silicon (vs 21ms when
+# ultralytics defaults to CPUExecutionProvider).
+
+class _BoxResult:
+    """Minimal replacement for ultralytics Boxes result."""
+    __slots__ = ('xyxy', 'conf', 'cls')
+
+    def __init__(self, xyxy, conf, cls):
+        self.xyxy = xyxy   # [[x1,y1,x2,y2]]
+        self.conf = conf   # [conf]
+        self.cls = cls     # [cls_id]
+
+
+class _DetResult:
+    """Minimal replacement for ultralytics Results."""
+    __slots__ = ('boxes',)
+
+    def __init__(self, boxes: list):
+        self.boxes = boxes
+
+
+class _OnnxCoreMLModel:
+    """ONNX Runtime model with CoreML EP, compatible with ultralytics API.
+
+    Supports: model(image_path_or_pil, conf=0.5, verbose=False)
+    Returns:  list of _DetResult with .boxes iterable of _BoxResult
+    """
+
+    def __init__(self, session, class_names: dict):
+        self.session = session
+        self.names = class_names
+        self._input_name = session.get_inputs()[0].name
+        # Expected input shape: [1, 3, H, W]
+        shape = session.get_inputs()[0].shape
+        self._input_h = shape[2] if isinstance(shape[2], int) else 640
+        self._input_w = shape[3] if isinstance(shape[3], int) else 640
+
+    def __call__(self, source, conf: float = 0.25, verbose: bool = True, **kwargs):
+        """Run inference on an image path or PIL Image."""
+        import numpy as np
+        from PIL import Image
+
+        # Load image
+        if isinstance(source, str):
+            img = Image.open(source).convert("RGB")
+        elif isinstance(source, Image.Image):
+            img = source.convert("RGB")
+        else:
+            img = Image.fromarray(source).convert("RGB")
+
+        orig_w, orig_h = img.size
+
+        # Letterbox resize to input size
+        scale = min(self._input_w / orig_w, self._input_h / orig_h)
+        new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+        img_resized = img.resize((new_w, new_h), Image.BILINEAR)
+
+        # Pad to input size (center)
+        pad_x = (self._input_w - new_w) // 2
+        pad_y = (self._input_h - new_h) // 2
+        canvas = np.full((self._input_h, self._input_w, 3), 114, dtype=np.uint8)
+        canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = np.array(img_resized)
+
+        # HWC→CHW, normalize, add batch dim
+        blob = canvas.transpose(2, 0, 1).astype(np.float32) / 255.0
+        blob = np.expand_dims(blob, 0)
+
+        # Run inference
+        outputs = self.session.run(None, {self._input_name: blob})
+        preds = outputs[0]  # shape: [1, num_detections, 6]
+
+        # Parse detections: [x1, y1, x2, y2, confidence, class_id]
+        boxes = []
+        for det in preds[0]:
+            det_conf = float(det[4])
+            if det_conf < conf:
+                continue
+
+            # Scale coordinates back to original image space
+            x1 = (float(det[0]) - pad_x) / scale
+            y1 = (float(det[1]) - pad_y) / scale
+            x2 = (float(det[2]) - pad_x) / scale
+            y2 = (float(det[3]) - pad_y) / scale
+
+            # Clip to image bounds
+            x1 = max(0, min(x1, orig_w))
+            y1 = max(0, min(y1, orig_h))
+            x2 = max(0, min(x2, orig_w))
+            y2 = max(0, min(y2, orig_h))
+
+            boxes.append(_BoxResult(
+                xyxy=np.array([[x1, y1, x2, y2]]),
+                conf=np.array([det_conf]),
+                cls=np.array([int(det[5])]),
+            ))
+
+        return [_DetResult(boxes)]
 
 
 # ─── Hardware detection ──────────────────────────────────────────────────────
@@ -411,12 +512,28 @@ class HardwareEnv:
         _log("Fix: pip uninstall onnxruntime && pip install onnxruntime-rocm")
         raise ImportError("ROCmExecutionProvider not available")
 
+    def _check_mps_runtime(self):
+        """Verify onnxruntime has CoreML provider for Apple GPU/ANE acceleration.
+
+        ONNX Runtime + CoreMLExecutionProvider bypasses the broken
+        MPSGraphExecutable MLIR pipeline (macOS 26.x) while still routing
+        inference through CoreML to leverage GPU and Neural Engine.
+        """
+        import onnxruntime
+        providers = onnxruntime.get_available_providers()
+        if "CoreMLExecutionProvider" in providers:
+            _log(f"onnxruntime CoreML provider available: {providers}")
+            return True
+        _log(f"onnxruntime providers: {providers} — CoreMLExecutionProvider not found")
+        _log("Fix: pip install onnxruntime  (arm64 macOS wheel includes CoreML EP)")
+        raise ImportError("CoreMLExecutionProvider not available")
+
     def _check_framework(self) -> bool:
-        """Check if the optimized inference runtime is importable."""
+        """Check if the optimized inference runtime is importable and compatible."""
         checks = {
             "cuda": lambda: __import__("tensorrt"),
             "rocm": lambda: self._check_rocm_runtime(),
-            "mps": lambda: __import__("coremltools"),
+            "mps": lambda: self._check_mps_runtime(),
             "intel": lambda: __import__("openvino"),
             "cpu": lambda: __import__("onnxruntime"),
         }
@@ -544,6 +661,43 @@ class HardwareEnv:
             _log("coremltools not available, loading without compute_units")
             return YOLO(model_path)
 
+    def _load_onnx_coreml(self, onnx_path: str):
+        """Load ONNX model with CoreMLExecutionProvider for fast GPU/ANE inference.
+
+        Returns an OnnxCoreMLModel wrapper that is compatible with the
+        ultralytics model(frame_path, conf=...) call pattern.
+        """
+        import onnxruntime as ort
+
+        providers = ['CoreMLExecutionProvider', 'CPUExecutionProvider']
+        session = ort.InferenceSession(onnx_path, providers=providers)
+        active = session.get_providers()
+        _log(f"ONNX+CoreML session: {active}")
+
+        # Load class names from companion JSON (avoids torch/ultralytics dep)
+        import json
+        names_path = onnx_path.replace('.onnx', '_names.json')
+        try:
+            with open(names_path) as f:
+                raw = json.load(f)
+            # JSON keys are strings; convert to int-keyed dict
+            class_names = {int(k): v for k, v in raw.items()}
+            _log(f"Loaded {len(class_names)} class names from {Path(names_path).name}")
+        except FileNotFoundError:
+            # Fallback: try loading from .pt if JSON doesn't exist
+            try:
+                from ultralytics import YOLO
+                pt_path = onnx_path.replace('.onnx', '.pt')
+                pt_model = YOLO(pt_path)
+                class_names = pt_model.names
+                _log(f"Loaded class names from {Path(pt_path).name} (fallback)")
+            except Exception:
+                # Last resort: use COCO 80-class defaults
+                _log("WARNING: No class names found, using generic labels")
+                class_names = {i: f"class_{i}" for i in range(80)}
+
+        return _OnnxCoreMLModel(session, class_names)
+
     def load_optimized(self, model_name: str, use_optimized: bool = True):
         """
         Load the best available model for this hardware.
@@ -560,10 +714,9 @@ class HardwareEnv:
             optimized_path = self.get_optimized_path(model_name)
             if optimized_path.exists():
                 try:
-                    # On Apple Silicon: route CoreML to Neural Engine
-                    if self.backend == "mps" and self.compute_units != "all":
-                        model = self._load_coreml_with_compute_units(
-                            str(optimized_path))
+                    # MPS: use ONNX Runtime + CoreML EP for fast inference
+                    if self.backend == "mps":
+                        model = self._load_onnx_coreml(str(optimized_path))
                     else:
                         model = YOLO(str(optimized_path))
                     self.load_ms = (time.perf_counter() - t0) * 1000
@@ -577,10 +730,9 @@ class HardwareEnv:
             exported = self.export_model(pt_model, model_name)
             if exported:
                 try:
-                    # On Apple Silicon: route CoreML to Neural Engine
-                    if self.backend == "mps" and self.compute_units != "all":
-                        model = self._load_coreml_with_compute_units(
-                            str(exported))
+                    # MPS: use ONNX Runtime + CoreML EP for fast inference
+                    if self.backend == "mps":
+                        model = self._load_onnx_coreml(str(exported))
                     else:
                         model = YOLO(str(exported))
                     self.load_ms = (time.perf_counter() - t0) * 1000
