@@ -36,20 +36,7 @@
 
 </div>
 
-<table>
-<tr>
-<td width="50%">
-<p align="center"><b>Run Local VLMs from HuggingFace — Even on Mac Mini 8GB</b></p>
-<img src="screenshots/aegis-vlm-browser.png" alt="SharpAI Aegis — Browse and run local VLM models for AI camera video analysis" width="100%">
-<p align="center"><em>Download and run SmolVLM2, Qwen-VL, LLaVA, MiniCPM-V locally. Your AI security camera agent sees through these eyes.</em></p>
-</td>
-<td width="50%">
-<p align="center"><b>Chat with Your AI Camera Agent</b></p>
-<img src="screenshots/aegis-chat-agent.png" alt="SharpAI Aegis — LLM-powered agentic security camera chat" width="100%">
-<p align="center"><em>"Who was at the door?" — Your agent searches footage, reasons about what happened, and answers with timestamps and clips.</em></p>
-</td>
-</tr>
-</table>
+<video src="screenshots/aegis-benchmark-demo.mp4" autoplay loop muted playsinline width="100%"></video>
 
 ---
 
