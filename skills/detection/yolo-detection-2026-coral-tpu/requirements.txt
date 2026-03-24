@@ -1,0 +1,15 @@
+# Container dependencies for Coral TPU Detection
+# Installed inside Docker container at build time
+#
+# Note: libedgetpu is installed via apt (Coral package repo),
+# not pip. See Dockerfile for system-level deps.
+
+# PyCoral API for Edge TPU inference
+pycoral~=2.0
+
+# TFLite runtime (Edge TPU delegate)
+tflite-runtime~=2.14
+
+# Image processing
+numpy>=1.24.0,<2.0
+Pillow>=10.0.0

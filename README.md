@@ -58,6 +58,8 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | Category | Skill | What It Does | Status |
 |----------|-------|--------------|:------:|
 | **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class detection — auto-accelerated via TensorRT / CoreML / OpenVINO / ONNX | ✅|
+| | [`yolo-detection-2026-coral-tpu`](skills/detection/yolo-detection-2026-coral-tpu/) | Google Coral Edge TPU — ~4ms inference via USB accelerator ([Docker-based](#detection--segmentation-skills)) | 🧪 |
+| | [`yolo-detection-2026-openvino`](skills/detection/yolo-detection-2026-openvino/) | Intel NCS2 USB / Intel GPU / CPU — multi-device via OpenVINO ([Docker-based](#detection--segmentation-skills)) | 🧪 |
 | **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [143-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
 | **Privacy** | [`depth-estimation`](skills/transformation/depth-estimation/) | [Real-time depth-map privacy transform](#-privacy--depth-map-anonymization) — anonymize camera feeds while preserving activity | ✅ |
 | **Segmentation** | [`sam2-segmentation`](skills/segmentation/sam2-segmentation/) | Interactive click-to-segment with Segment Anything 2 — pixel-perfect masks, point/box prompts, video tracking | ✅ |
@@ -69,6 +71,54 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 > ✅ Ready · 🧪 Testing · 📐 Planned
 
 > **Registry:** All skills are indexed in [`skills.json`](skills.json) for programmatic discovery.
+
+### Detection & Segmentation Skills
+
+Detection and segmentation skills process visual data from camera feeds — detecting objects, segmenting regions, or analyzing scenes. All skills use the same **JSONL stdin/stdout protocol**: Aegis writes a frame to a shared volume, sends a `frame` event on stdin, and reads `detections` from stdout. This means every detection skill — whether running natively or inside Docker — is interchangeable from Aegis's perspective.
+
+```mermaid
+graph TB
+    CAM["📷 Camera Feed"] --> GOV["Frame Governor (5 FPS)"]
+    GOV --> |"frame.jpg → shared volume"| PROTO["JSONL stdin/stdout Protocol"]
+
+    PROTO --> NATIVE["🖥️ Native: yolo-detection-2026"]
+    PROTO --> DOCKER["🐳 Docker: Coral TPU / OpenVINO"]
+
+    subgraph Native["Native Skill (runs on host)"]
+        NATIVE --> ENV["env_config.py auto-detect"]
+        ENV --> TRT["NVIDIA → TensorRT"]
+        ENV --> CML["Apple Silicon → CoreML"]
+        ENV --> OV["Intel → OpenVINO IR"]
+        ENV --> ONNX["AMD / CPU → ONNX"]
+    end
+
+    subgraph Container["Docker Container"]
+        DOCKER --> CORAL["Coral TPU → pycoral"]
+        DOCKER --> OVIR["OpenVINO → Ultralytics OV"]
+        DOCKER --> CPU["CPU fallback"]
+        CORAL -.-> USB["USB/IP passthrough"]
+        OVIR -.-> DRI["/dev/dri · /dev/bus/usb"]
+    end
+
+    NATIVE --> |"stdout: detections"| AEGIS["Aegis IPC → Live Overlay + Alerts"]
+    DOCKER --> |"stdout: detections"| AEGIS
+```
+
+- **Native skills** run directly on the host — [`env_config.py`](skills/lib/env_config.py) auto-detects the GPU and converts models to the fastest format (TensorRT, CoreML, OpenVINO IR, ONNX)
+- **Docker skills** wrap hardware-specific runtimes in a container — cross-platform USB/device access without native driver installation
+- **Same output** — Aegis sees identical JSONL from all skills, so detection overlays, alerts, and forensic analysis work with any backend
+
+#### LLM-Assisted Skill Installation
+
+Skills are installed by an **autonomous LLM deployment agent** — not by brittle shell scripts. When you click "Install" in Aegis, a focused mini-agent session reads the skill's `SKILL.md` manifest and figures out what to do:
+
+1. **Probe** — reads `SKILL.md`, `requirements.txt`, and `package.json` to understand what the skill needs
+2. **Detect hardware** — checks for NVIDIA (CUDA), AMD (ROCm), Apple Silicon (MPS), Intel (OpenVINO), or CPU-only
+3. **Install** — runs the right commands (`pip install`, `npm install`, `docker build`) with the correct backend-specific dependencies
+4. **Verify** — runs a smoke test to confirm the skill loads before marking it complete
+5. **Determine launch command** — figures out the exact `run_command` to start the skill and saves it to the registry
+
+This means community-contributed skills don't need a bespoke installer — the LLM reads the manifest and adapts to whatever hardware you have. If something fails, it reads the error output and tries to fix it autonomously.
 
 
 ## 🚀 Getting Started with [SharpAI Aegis](https://www.sharpai.org)
