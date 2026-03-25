@@ -85,7 +85,7 @@ graph TB
     PROTO --> CORAL["yolo-detection-2026-coral-tpu"]
     PROTO --> OV["yolo-detection-2026-openvino"]
 
-    subgraph Native["All skills run natively on host"]
+    subgraph Backends["Skill Backends"]
         YOLO --> ENV["env_config.py auto-detect"]
         ENV --> TRT["NVIDIA → TensorRT"]
         ENV --> CML["Apple Silicon → CoreML"]
@@ -107,7 +107,7 @@ graph TB
     OV --> |"stdout: detections"| AEGIS
 ```
 
-- **All skills run natively** — each creates a Python venv, installs its own dependencies, and accesses hardware directly (no Docker required)
+- **Unified protocol** — each skill creates its own Python venv or Docker container, but Aegis sees the same JSONL interface regardless of backend
 - **Coral TPU** uses [ai-edge-litert](https://pypi.org/project/ai-edge-litert/) (LiteRT) with the `libedgetpu` delegate — supports Python 3.9–3.13 on Linux, macOS, and Windows
 - **Same output** — Aegis sees identical JSONL from all skills, so detection overlays, alerts, and forensic analysis work with any backend
 
