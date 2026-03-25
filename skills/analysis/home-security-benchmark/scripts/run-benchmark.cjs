@@ -120,6 +120,89 @@ const vlmClient = VLM_URL ? new OpenAI({
     baseURL: `${strip(VLM_URL)}/v1`,
 }) : null;
 
+// ─── Model Family Capabilities Config ────────────────────────────────────────
+//
+// Different model families require different per-request params to control
+// thinking/reasoning behavior.  This table centralizes those differences so
+// llmCall() can dispatch them automatically.
+//
+// Fields:
+//   match         — fn(modelName: string) → bool
+//   apiParams     — extra params merged into every chat/completions request
+//   serverFlags   — llama-server startup flags needed for full control
+//                   (documentation only — llmCall is a client and cannot set these)
+//
+// ┌─────────────────────┬──────────────────────────────┬──────────────────────────────────────────┐
+// │ Family              │ Per-request param             │ llama-server startup flag                │
+// ├─────────────────────┼──────────────────────────────┼──────────────────────────────────────────┤
+// │ Mistral Small 4+    │ reasoning_effort: 'none'      │ --reasoning-budget 0                     │
+// │ Qwen3.5 (thinking)  │ (none needed — handled by     │ --chat-template-kwargs                   │
+// │                     │  /no_think prompt suffix and  │   '{"enable_thinking":false}'            │
+// │                     │  500-token reasoning abort)   │                                          │
+// │ GPT / Claude        │ (none — cloud API, no local   │ N/A                                      │
+// │                     │  thinking tokens)             │                                          │
+// └─────────────────────┴──────────────────────────────┴──────────────────────────────────────────┘
+//
+// To add a new model family: append an entry to MODEL_FAMILIES.
+// The match fn receives the lower-cased model name/filename.
+
+const MODEL_FAMILIES = [
+    {
+        name: 'Mistral',
+        // Covers: Mistral-Small-4, Mistral-*, Magistral-*, Mixtral-*
+        match: (m) => m.includes('mistral') || m.includes('magistral') || m.includes('mixtral'),
+        // reasoning_effort=none disables thinking and routes all output to delta.content.
+        // Supported by both Mistral cloud API and llama-server (forwarded as chat template kwarg).
+        // Without this Mistral routes ALL output to delta.thinking, causing 30s idle timeouts.
+        apiParams: { reasoning_effort: 'none' },
+        serverFlags: '--chat-template-kwargs {"reasoning_effort":"none"} --parallel 1',
+    },
+    {
+        name: 'Nemotron',
+        // NVIDIA Nemotron-3-Nano (4B, 30B) — rejects temperature < 1.0 with HTTP 400:
+        // "Unsupported value: 'temperature' does not support 0.1 with this model"
+        match: (m) => m.includes('nemotron'),
+        apiParams: {},
+        minTemperature: 1.0,
+    },
+    {
+        name: 'LFM',
+        // Liquid LFM2 / LFM2.5 — same temperature restriction as Nemotron
+        match: (m) => m.includes('lfm'),
+        apiParams: {},
+        minTemperature: 1.0,
+    },
+    // Qwen3.5 thinking is handled via prompt-level /no_think and the 500-token reasoning
+    // abort in llmCall — no extra per-request params needed.
+    {
+        name: 'GPT-OSS',
+        // gpt-oss-20b uses <|channel|>analysis/final structure.
+        // reasoning_effort=none hints the model to minimize analysis (injected into system prompt
+        // by the chat template). The mlx-server OutputFilter suppresses analysis at token ID level.
+        match: (m) => m.includes('gpt-oss'),
+        apiParams: { reasoning_effort: 'none' },
+        serverFlags: '--chat-template-kwargs {"reasoning_effort":"none"}',
+    },
+];
+
+/**
+ * Return the matched MODEL_FAMILIES entry for the given model name.
+ * Returns {} if the model is not in any known family.
+ */
+function getModelFamily(modelName) {
+    if (!modelName) return {};
+    const lower = modelName.toLowerCase();
+    for (const family of MODEL_FAMILIES) {
+        if (family.match(lower)) return family;
+    }
+    return {};
+}
+
+/** Return extra API params for the model (e.g. reasoning_effort for Mistral). */
+function getModelApiParams(modelName) {
+    return getModelFamily(modelName).apiParams || {};
+}
+
 // ─── Skill Protocol: JSON lines on stdout, human text on stderr ──────────────
 
 /**
@@ -226,6 +309,20 @@ async function llmCall(messages, opts = {}) {
     // Sending max_tokens to thinking models (Qwen3.5) starves actual output since
     // reasoning_content counts against the limit.
 
+    // Lookup model-family-specific config (e.g. reasoning_effort for Mistral,
+    // minTemperature for Nemotron/LFM2).
+    // VLM calls skip the LLM family table — VLM models are always local llava-compatible.
+    const modelFamily = opts.vlm ? {} : getModelFamily(model || LLM_MODEL);
+    const modelFamilyParams = modelFamily.apiParams || {};
+
+    // Resolve temperature: apply model-specific minimum if needed.
+    // Nemotron and LFM2 reject temperature < 1.0 with HTTP 400.
+    let temperature = opts.temperature;
+    if (temperature === undefined && opts.expectJSON) temperature = 0.7;
+    if (temperature !== undefined && modelFamily.minTemperature !== undefined) {
+        temperature = Math.max(temperature, modelFamily.minTemperature);
+    }
+
     // Build request params
     const params = {
         messages,
@@ -234,10 +331,12 @@ async function llmCall(messages, opts = {}) {
         // llama-server crashes with "Failed to parse input" when stream_options is present)
         ...(isCloudApi && { stream_options: { include_usage: true } }),
         ...(model && { model }),
-        ...(opts.temperature !== undefined && { temperature: opts.temperature }),
-        ...(opts.expectJSON && opts.temperature === undefined && { temperature: 0.7 }),
+        ...(temperature !== undefined && { temperature }),
         ...(opts.expectJSON && { top_p: 0.8 }),
         ...(opts.tools && { tools: opts.tools }),
+        // Model-family-specific params (e.g. reasoning_effort:'none' for Mistral).
+        // These are merged last so they take precedence over defaults.
+        ...modelFamilyParams,
     };
 
     // Use an AbortController with idle timeout that resets on each streamed chunk.
@@ -288,6 +387,9 @@ async function llmCall(messages, opts = {}) {
         let tokenCount = 0;
         let tokenBuffer = '';
         let firstTokenTime = null;  // For TTFT measurement
+        // For JSON-expected tests: track whether we've seen the start of JSON content.
+        // Until we see '{' or '[', everything in delta.content is treated as reasoning.
+        let jsonContentStarted = !opts.expectJSON;  // true immediately for non-JSON tests
 
         for await (const chunk of stream) {
             resetIdle();
@@ -295,15 +397,56 @@ async function llmCall(messages, opts = {}) {
             if (chunk.model) model = chunk.model;
 
             const delta = chunk.choices?.[0]?.delta;
-            if (delta?.content) content += delta.content;
+            if (delta?.content) {
+                if (jsonContentStarted) {
+                    // Already in content mode — accumulate normally
+                    content += delta.content;
+                } else {
+                    // JSON test: haven't seen JSON start yet.
+                    // Check if this chunk contains the start of JSON.
+                    // First strip any <think>...</think> blocks.
+                    const cleaned = (content + delta.content)
+                        .replace(/<think>[\s\S]*?<\/think>\s*/gi, '')
+                        .trimStart();
+                    const jsonIdx = cleaned.search(/[{\[]/);
+                    if (jsonIdx >= 0) {
+                        // Found JSON start — split: everything before is reasoning,
+                        // everything from JSON start onwards is content.
+                        jsonContentStarted = true;
+                        const allText = content + delta.content;
+                        // Find the actual position in the raw text
+                        const rawCleaned = allText.replace(/<think>[\s\S]*?<\/think>\s*/gi, '');
+                        const rawJsonIdx = rawCleaned.search(/[{\[]/);
+                        if (rawJsonIdx >= 0) {
+                            const thinkingPart = rawCleaned.slice(0, rawJsonIdx);
+                            const contentPart = rawCleaned.slice(rawJsonIdx);
+                            if (thinkingPart.trim()) reasoningContent += thinkingPart;
+                            content = contentPart;
+                        } else {
+                            content = allText;
+                        }
+                    } else {
+                        // Still no JSON — accumulate as reasoning
+                        reasoningContent += delta.content;
+                        // Keep the raw content in a temp buffer for the split logic above
+                        content += delta.content;
+                    }
+                }
+            }
             if (delta?.reasoning_content) reasoningContent += delta.reasoning_content;
-            if (delta?.content || delta?.reasoning_content) {
+            // Fallback: Mistral Small 4 in llama-server may route thinking tokens through
+            // `delta.thinking` even when reasoning_effort=none is requested (llama.cpp
+            // compatibility varies by version). Capture it so the idle timer resets.
+            if (delta?.thinking) reasoningContent += delta.thinking;
+            // mlx-lm Python server uses `delta.reasoning` instead of `delta.reasoning_content`
+            if (delta?.reasoning) reasoningContent += delta.reasoning;
+            if (delta?.content || delta?.reasoning_content || delta?.thinking || delta?.reasoning) {
                 tokenCount++;
                 // Capture TTFT on first content/reasoning token
                 if (!firstTokenTime) firstTokenTime = Date.now();
                 // Buffer and log tokens — tag with field source
-                const isContent = !!delta?.content;
-                const tok = delta?.content || delta?.reasoning_content || '';
+                const isContent = !!delta?.content && jsonContentStarted;
+                const tok = delta?.content || delta?.reasoning_content || delta?.reasoning || '';
                 // Tag first token of each field type
                 if (tokenCount === 1) tokenBuffer += isContent ? '[C] ' : '[R] ';
                 tokenBuffer += tok;
@@ -323,9 +466,9 @@ async function llmCall(messages, opts = {}) {
                     controller.abort();
                     break;
                 }
-                // If content is arriving, check it starts with JSON
-                if (opts.expectJSON && isContent && content.length >= 50) {
-                    const stripped = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trimStart();
+                // If we have actual JSON content, verify it looks valid
+                if (opts.expectJSON && jsonContentStarted && content.length >= 50) {
+                    const stripped = content.trimStart();
                     if (stripped.length >= 50 && !/^\s*[{\[]/.test(stripped)) {
                         log(`    ⚠ Aborting: expected JSON but got: "${stripped.slice(0, 80)}…"`);
                         controller.abort();
@@ -368,6 +511,13 @@ async function llmCall(messages, opts = {}) {
 
         // Flush remaining token buffer
         if (tokenBuffer) log(tokenBuffer);
+
+        // If JSON was expected but never found in content, the content is all thinking text.
+        // Clear it so the reasoning fallback below can extract JSON from reasoningContent.
+        if (opts.expectJSON && !jsonContentStarted) {
+            log(`    💭 Model produced ${tokenCount} thinking tokens, no JSON content yet — checking reasoning for JSON`);
+            content = '';
+        }
 
         // If the model only produced reasoning_content (thinking) with no content,
         // use the reasoning output as the response content for evaluation purposes.
@@ -432,10 +582,19 @@ async function llmCall(messages, opts = {}) {
         if (decodeTokensPerSec !== null) results.perfTotals.decodeTokensPerSec.push(decodeTokensPerSec);
 
         // Capture model name from first response
+        // MLX server returns the full filesystem path as model name
+        // e.g. /Users/simba/.aegis-ai/models/mlx_models/mlx-community/Qwen3.5-9B-8bit
+        // Strip to just the org/model portion: mlx-community/Qwen3.5-9B-8bit
+        const cleanName = (n) => {
+            if (!n || !n.includes('/')) return n;
+            const parts = n.split('/');
+            // If it looks like a filesystem path (>3 segments), keep last 2 (org/model)
+            return parts.length > 3 ? parts.slice(-2).join('/') : n;
+        };
         if (opts.vlm) {
-            if (!results.model.vlm && model) results.model.vlm = model;
+            if (!results.model.vlm && model) results.model.vlm = cleanName(model);
         } else {
-            if (!results.model.name && model) results.model.name = model;
+            if (!results.model.name && model) results.model.name = cleanName(model);
         }
 
         return { content, toolCalls, usage: callTokens, perf: callPerf, model };
@@ -451,6 +610,11 @@ function stripThink(text) {
     // Strip Qwen3.5 'Thinking Process:' blocks (outputs plain text reasoning
     // instead of <think> tags when enable_thinking is active)
     cleaned = cleaned.replace(/^Thinking Process[:\s]*[\s\S]*?(?=\n\s*[{\[]|\n```|$)/i, '').trim();
+    // Strip gpt-oss <|channel|>...<|message|> routing tokens
+    // e.g. "<|channel|>analysis<|message|>We need to decide..." → "We need to decide..."
+    cleaned = cleaned.replace(/^<\|channel\|>[^<]*<\|message\|>/i, '').trim();
+    // Strip any remaining <|...|> special tokens (end_turn, etc.)
+    cleaned = cleaned.replace(/<\|[^|]+\|>/g, '').trim();
     return cleaned;
 }
 
@@ -461,14 +625,18 @@ function parseJSON(text) {
     if (codeBlock) {
         jsonStr = codeBlock[1];
     } else {
-        // Find first { or [ and extract balanced JSON
-        const startIdx = cleaned.search(/[{\[]/); 
-        if (startIdx >= 0) {
+        // Extract ALL balanced JSON objects/arrays, then pick the largest.
+        // Some models (gpt-oss) emit an empty `{}` prefix before the real JSON.
+        const candidates = [];
+        let searchFrom = 0;
+        while (searchFrom < cleaned.length) {
+            const sub = cleaned.slice(searchFrom);
+            const startOff = sub.search(/[{\[]/);
+            if (startOff < 0) break;
+            const startIdx = searchFrom + startOff;
             const opener = cleaned[startIdx];
             const closer = opener === '{' ? '}' : ']';
-            let depth = 0;
-            let inString = false;
-            let escape = false;
+            let depth = 0, inString = false, escape = false, endIdx = -1;
             for (let i = startIdx; i < cleaned.length; i++) {
                 const ch = cleaned[i];
                 if (escape) { escape = false; continue; }
@@ -476,9 +644,19 @@ function parseJSON(text) {
                 if (ch === '"') { inString = !inString; continue; }
                 if (!inString) {
                     if (ch === opener) depth++;
-                    else if (ch === closer) { depth--; if (depth === 0) { jsonStr = cleaned.slice(startIdx, i + 1); break; } }
+                    else if (ch === closer) { depth--; if (depth === 0) { endIdx = i; break; } }
                 }
             }
+            if (endIdx >= 0) {
+                candidates.push(cleaned.slice(startIdx, endIdx + 1));
+                searchFrom = endIdx + 1;
+            } else {
+                break;
+            }
+        }
+        // Prefer the longest candidate (most likely the real response)
+        if (candidates.length > 0) {
+            jsonStr = candidates.reduce((a, b) => a.length >= b.length ? a : b);
         }
     }
     // Clean common local model artifacts before parsing:
@@ -498,7 +676,12 @@ function parseJSON(text) {
             .replace(/"placeholder"(\s*"placeholder")*/g, '"placeholder"')  // collapse repeated placeholders
             .replace(/\bplaceholder\b/g, '""')        // placeholder → empty string
             .replace(/,\s*([}\]])/g, '$1');            // re-clean trailing commas
-        return JSON.parse(aggressive.trim());
+        try {
+            return JSON.parse(aggressive.trim());
+        } catch (secondErr) {
+            // Include raw content in error for diagnostics
+            throw new Error(`${secondErr.message} | raw(120): "${(text || '').slice(0, 120)}"`);
+        }
     }
 }
 
@@ -552,6 +735,38 @@ function sampleResourceMetrics() {
     return sample;
 }
 
+/**
+ * Aggregate resource samples to produce a representative summary.
+ * Uses PEAK GPU utilization (since point-in-time samples often miss active inference)
+ * and MAX GPU memory (high-water mark during the benchmark run).
+ */
+function aggregateResourceSamples(samples) {
+    if (!samples || samples.length === 0) return null;
+    const gpuSamples = samples.filter(s => s.gpu);
+    if (gpuSamples.length === 0) {
+        // No GPU data — return last sample for sys memory at least
+        return samples[samples.length - 1];
+    }
+    // Find peak GPU utilization sample
+    const peakGpu = gpuSamples.reduce((best, s) =>
+        (s.gpu.util > (best.gpu?.util ?? -1)) ? s : best, gpuSamples[0]);
+    // Find max GPU memory sample
+    const maxMem = gpuSamples.reduce((best, s) =>
+        ((s.gpu.memUsedGB || 0) > (best.gpu?.memUsedGB || 0)) ? s : best, gpuSamples[0]);
+    // Use the last sample for system memory (most recent)
+    const lastSample = samples[samples.length - 1];
+    return {
+        ...lastSample,
+        gpu: {
+            util: peakGpu.gpu.util,
+            renderer: peakGpu.gpu.renderer,
+            tiler: peakGpu.gpu.tiler,
+            memUsedGB: maxMem.gpu.memUsedGB,
+            memAllocGB: maxMem.gpu.memAllocGB,
+        },
+    };
+}
+
 // ─── Live progress: intermediate saves + report regeneration ────────────────
 let _liveReportOpened = false;
 let _runStartedAt = null;     // Set when runSuites() begins
@@ -603,7 +818,7 @@ function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName
                 prefillTokensPerSec: results.perfTotals.prefillTokensPerSec,
                 decodeTokensPerSec: results.perfTotals.serverDecodeTokensPerSec,
             },
-            resource: results.resourceSamples.length > 0 ? results.resourceSamples[results.resourceSamples.length - 1] : null,
+            resource: aggregateResourceSamples(results.resourceSamples),
         } : null;
 
         // Preserve previous runs in index for comparison sidebar
@@ -2347,8 +2562,62 @@ async function main() {
         emit({ event: 'error', message: `Cannot reach LLM endpoint: ${err.message}` });
         process.exit(IS_SKILL_MODE ? 0 : 1);
     }
+    // ── Streaming sanity check ────────────────────────────────────────────────
+    // Fires a tiny streaming call to verify the model actually produces content.
+    // Catches the Mistral "token-loop" bug: server started with a Qwen-specific
+    // --chat-template-kwargs flag causes Mistral to emit only empty token ID 31
+    // on every chunk, giving 0 content tokens for every test.
+    //
+    // This check saves ~30 minutes of doomed benchmark runs by failing fast.
+    log('\n  🔍 Streaming sanity check (10 tokens)...');
+    try {
+        const warmupParams = {
+            ...(LLM_MODEL && { model: LLM_MODEL }),
+            messages: [{ role: 'user', content: 'Reply with just the word: hello' }],
+            stream: true,
+            max_tokens: 200,  // models with thinking/analysis phases need >10 tokens to reach final output
+            ...getModelApiParams(LLM_MODEL),
+        };
+        const warmupStream = await llmClient.chat.completions.create(warmupParams);
+        let warmupContent = '';
+        let warmupChunks = 0;
+        const warmupController = new AbortController();
+        const warmupTimeout = setTimeout(() => warmupController.abort(), 15000);
+        try {
+            for await (const chunk of warmupStream) {
+                warmupChunks++;
+                const d = chunk.choices?.[0]?.delta;
+                if (d?.content) warmupContent += d.content;
+                if (d?.reasoning_content) warmupContent += d.reasoning_content;
+                if (d?.thinking) warmupContent += d.thinking;
+                if (d?.reasoning) warmupContent += d.reasoning;
+                if (warmupChunks >= 30) break; // enough chunks to decide
+            }
+        } finally {
+            clearTimeout(warmupTimeout);
+        }
 
-    // Collect system info
+        if (warmupContent.trim().length === 0) {
+            // Model produced chunks but zero content — server is in a bad state
+            const modelName = results.model.name || LLM_MODEL || 'current model';
+            log(`\n  ❌ STREAMING SANITY CHECK FAILED`);
+            log(`     The model (${modelName}) produced ${warmupChunks} stream chunks but 0 content tokens.`);
+            log(`     This usually means the llama-server was started with an incompatible`);
+            log(`     --chat-template-kwargs flag (e.g. Qwen's enable_thinking:false applied to Mistral).`);
+            log(`\n  ➡  Fix: Reload the model in Aegis-AI to restart the llama-server with`);
+            log(`          the correct flags for this model family.`);
+            log(`          Mistral requires: --reasoning-budget 0`);
+            log(`          Qwen requires:    --chat-template-kwargs '{"enable_thinking":false}'\n`);
+            emit({ event: 'error', message: `Streaming sanity failed: ${warmupChunks} chunks, 0 content tokens. Reload the model in Aegis-AI to fix.` });
+            process.exit(IS_SKILL_MODE ? 0 : 1);
+        }
+
+        log(`  ✅ Streaming OK — ${warmupContent.trim().split(/\s+/).length} words, ${warmupChunks} chunks`);
+    } catch (err) {
+        // Non-fatal — if warmup errors, let the benchmark try; individual tests will surface the issue
+        log(`  ⚠️  Streaming warmup error (non-fatal): ${err.message}`);
+    }
+
     results.system = collectSystemInfo();
     log(`  System:   ${results.system.cpu} (${results.system.cpuCores} cores)`);
     log(`  Memory:   ${results.system.freeMemoryGB}GB free / ${results.system.totalMemoryGB}GB total`);
@@ -2468,7 +2737,7 @@ async function main() {
         tokens: results.tokenTotals.total,
         perfSummary: {
             ...(results.perfSummary || {}),
-            resource: results.resourceSamples?.length > 0 ? results.resourceSamples[results.resourceSamples.length - 1] : null,
+            resource: aggregateResourceSamples(results.resourceSamples),
         },
     });
     fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));

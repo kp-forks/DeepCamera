@@ -75,20 +75,22 @@ camera feeds including infrared imagery. The suite comprises
 preprocessing, tool use, security classification, prompt injection resistance,
 knowledge injection, and event deduplication, plus an optional multimodal
 VLM scene analysis suite (35~additional tests). We present results across
-\textbf{seven model configurations}: four local Qwen3.5 variants
-(9B~Q4\_K\_M, 27B~Q4\_K\_M, 35B-MoE~Q4\_K\_L, 122B-MoE~IQ1\_M) and three
-OpenAI cloud models (GPT-5.4, GPT-5.4-mini, GPT-5.4-nano), all evaluated
-on a single Apple M5~Pro consumer laptop (64~GB unified memory). Our
-findings reveal that (1)~the best local model (Qwen3.5-9B) achieves
-93.8\% accuracy vs.\ 97.9\% for GPT-5.4---a gap of only 4.1~percentage
-points---with complete data privacy and zero API cost; (2)~the
-Qwen3.5-35B-MoE variant produces lower first-token latency (435~ms)
-than any OpenAI cloud endpoint tested (508~ms for GPT-5.4-nano);
-(3)~security threat classification is universally robust across all
-eight model sizes; and (4)~event deduplication across camera views
-remains the hardest task, with only GPT-5.4 achieving a perfect 8/8
-score. HomeSec-Bench is released as an open-source DeepCamera skill,
-enabling reproducible evaluation of any OpenAI-compatible endpoint.
+\textbf{sixteen model configurations} spanning five model families: Qwen3.5
+(six variants from 9B to 122B-MoE), Mistral Small~4 (119B, two quants),
+NVIDIA Nemotron-3-Nano (4B and 30B), Liquid LFM2 (1.2B and 24B), and
+three OpenAI cloud models (GPT-5.4, GPT-5.4-mini, GPT-5.4-nano), all
+evaluated on a single Apple M5~Pro consumer laptop (64~GB unified memory).
+Our findings reveal that (1)~the best local model (Qwen3.5-27B~Q8) achieves
+95.8\% accuracy vs.\ 97.9\% for GPT-5.4---a gap of only 2.1~percentage
+points---with complete data privacy and zero API cost; (2)~Mistral
+Small~4 (119B) at Q2\_K\_XL quantization scores 89.6\%, establishing
+that 119B-class thinking models can run on consumer hardware with
+proper thinking-mode suppression; (3)~security threat classification
+is universally robust across all model sizes; and (4)~event deduplication
+across camera views remains the hardest task, with only GPT-5.4
+achieving a perfect 8/8 score. HomeSec-Bench is released as an
+open-source DeepCamera skill, enabling reproducible evaluation of any
+OpenAI-compatible endpoint.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -731,39 +733,56 @@ not just security cameras.
 
 \subsection{Models Under Test}
 
-We evaluate seven model configurations spanning local and cloud
-deployments. Local models run via \texttt{llama-server} with Metal
-Performance Shaders (MPS/CoreML) acceleration. Cloud models route
-through the OpenAI API.
+We evaluate sixteen model configurations spanning five model families
+across local and cloud deployments. Local models run via
+\texttt{llama-server} (llama.cpp build b8416) with Metal Performance
+Shaders acceleration on Apple M5~Pro. Cloud models route through the
+OpenAI API.
 
 \begin{table}[h]
 \centering
-\caption{Model Configurations Under Test}
+\caption{Model Configurations Under Test (16 Models)}
 \label{tab:models}
 \small
-\begin{tabular}{p{2.8cm}p{1.3cm}p{1.7cm}}
+\begin{tabular}{p{3.4cm}p{1.0cm}p{2.0cm}}
 \toprule
 \textbf{Model} & \textbf{Type} & \textbf{Quant / Size} \\
 \midrule
+\multicolumn{3}{l}{\textit{Qwen3.5 Family}} \\
 Qwen3.5-9B & Local & Q4\_K\_M, 13.8~GB \\
+Qwen3.5-9B & Local & BF16, 18.5~GB \\
 Qwen3.5-27B & Local & Q4\_K\_M, 24.9~GB \\
+Qwen3.5-27B & Local & Q8\_K\_XL, 30.2~GB \\
 Qwen3.5-35B-MoE & Local & Q4\_K\_L, 27.2~GB \\
 Qwen3.5-122B-MoE & Local & IQ1\_M, 40.8~GB \\
+\multicolumn{3}{l}{\textit{Mistral Family}} \\
+Mistral-Small-4-119B & Local & IQ1\_M, 29.0~GB \\
+Mistral-Small-4-119B & Local & Q2\_K\_XL, 42.9~GB \\
+\multicolumn{3}{l}{\textit{NVIDIA Nemotron}} \\
+Nemotron-3-Nano-4B & Local & Q4\_K\_M, 2.5~GB \\
+Nemotron-3-Nano-30B & Local & Q8\_0, 31.5~GB \\
+\multicolumn{3}{l}{\textit{Liquid LFM}} \\
+LFM2.5-1.2B & Local & BF16, 2.4~GB \\
+LFM2-24B-MoE & Local & Q8\_0, 25.6~GB \\
+\multicolumn{3}{l}{\textit{OpenAI Cloud}} \\
 GPT-5.4 & Cloud & API \\
 GPT-5.4-mini & Cloud & API \\
 GPT-5.4-nano & Cloud & API \\
+GPT-5-mini (2025) & Cloud & API \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-All local models are GGUF variants served by \texttt{llama-server}
-(llama.cpp). The MoE variants (35B and 122B) activate only a fraction
-of parameters per token---approximately 3B active for the 35B
-variant---enabling surprisingly low latency relative to parameter count.
-GPT-5.4-mini exhibited API-level restrictions on non-default temperature
-values; affected suites (using \texttt{temperature}$\neq$1.0) returned
-blanket failures, so GPT-5.4-mini results should be interpreted as a
-lower bound of true capability.
+All local models are GGUF variants served by \texttt{llama-server}.
+The MoE variants (Qwen3.5-35B, 122B; LFM2-24B) activate only a
+fraction of parameters per token---approximately 3B active for the
+35B variant---enabling surprisingly low latency relative to parameter
+count. Mistral Small~4 is a thinking model; we suppress reasoning
+tokens via \texttt{--chat-template-kwargs \{"reasoning\_effort":"none"\}}
+and \texttt{--parallel 1} to prevent KV cache memory exhaustion on
+64~GB hardware. GPT-5-mini (2025) rejected non-default temperature
+values; affected suites returned blanket 400 errors, so its results
+represent a lower bound.
 
 \subsection{Hardware}
 
@@ -795,33 +814,45 @@ Performance metrics are averaged over all tests per model run.
 
 \begin{table}[h]
 \centering
-\caption{Overall LLM Benchmark Results — 96 Tests}
+\caption{Overall LLM Benchmark Results — 96 Tests, 16 Models}
 \label{tab:overall}
 \small
-\begin{tabular}{p{2.5cm}cccc}
+\begin{tabular}{p{3.2cm}cccc}
 \toprule
 \textbf{Model} & \textbf{Pass} & \textbf{Fail} & \textbf{Rate} & \textbf{Time} \\
 \midrule
 GPT-5.4 & \textbf{94} & 2 & \textbf{97.9\%} & 2m 22s \\
 GPT-5.4-mini & 92 & 4 & 95.8\% & 1m 17s \\
-Qwen3.5-9B & 90 & 6 & 93.8\% & 5m 23s \\
-Qwen3.5-27B & 90 & 6 & 93.8\% & 15m 8s \\
+Qwen3.5-27B Q8\_K\_XL & 92 & 4 & 95.8\% & --- \\
+Qwen3.5-9B BF16 & 91 & 5 & 94.8\% & --- \\
+Qwen3.5-27B Q4\_K\_M & 90 & 6 & 93.8\% & 15m 8s \\
+Mistral-119B Q2\_K\_XL & 86 & 10 & 89.6\% & --- \\
 Qwen3.5-122B-MoE & 89 & 7 & 92.7\% & 8m 26s \\
 GPT-5.4-nano & 89 & 7 & 92.7\% & 1m 34s \\
+Qwen3.5-9B Q4\_K\_M & 88 & 8 & 91.7\% & 5m 23s \\
 Qwen3.5-35B-MoE & 88 & 8 & 91.7\% & 3m 30s \\
+Nemotron-4B$^\ddagger$ & 84 & 12 & 87.5\% & --- \\
+Mistral-119B IQ1\_M & 79 & 17 & 82.3\% & --- \\
+Nemotron-30B$^\ddagger$ & 78 & 18 & 81.3\% & --- \\
+LFM2-24B-MoE$^\ddagger$ & 72 & 24 & 75.0\% & --- \\
+LFM2.5-1.2B & 62 & 34 & 64.6\% & --- \\
 GPT-5-mini (2025)$^\dagger$ & 60 & 36 & 62.5\% & 7m 38s \\
 \midrule
-\multicolumn{5}{l}{\footnotesize $^\dagger$API rejected non-default temperature; see §\ref{sec:limitations}.}
+\multicolumn{5}{l}{\footnotesize $^\dagger$API rejected non-default temperature; see §\ref{sec:limitations}.} \\
+\multicolumn{5}{l}{\footnotesize $^\ddagger$Temperature restriction failures inflate fail count; see §\ref{sec:limitations}.}
 \end{tabular}
 \end{table}
 
-The \textbf{Qwen3.5-9B} running entirely on a consumer laptop scores
-\textbf{93.8\%}---only 4.1~percentage points below GPT-5.4, and within
-2~points of GPT-5.4-mini. Strikingly, the Qwen3.5-35B-MoE model
-(88/96) ranks last among valid local models despite having 4$\times$
-more parameters than the 9B variant; this is primarily attributed to
-quantization-induced precision loss at IQ-level quants and higher
-memory bandwidth contention on long reasoning chains.
+The expanded 16-model evaluation reveals several new findings.
+\textbf{Qwen3.5-27B at Q8\_K\_XL} quantization achieves \textbf{95.8\%}---tying
+GPT-5.4-mini and closing to within 2.1~points of GPT-5.4. Higher-precision
+quantization (Q8 vs.\ Q4) provides a 2-point lift for the 27B model.
+\textbf{Mistral Small~4} (119B) at Q2\_K\_XL scores \textbf{89.6\%},
+demonstrating that 119B-class thinking models can produce competitive
+results on consumer hardware when thinking-mode is properly suppressed.
+Nemotron and LFM2 models are penalized by temperature-restriction errors
+(\texttt{temperature=0.1} unsupported); their true capability is higher
+than reported scores suggest.
 
 \subsection{Inference Performance}
 
@@ -860,15 +891,13 @@ current language models. This makes local deployment the default
 choice for threat triage, preserving privacy for the most
 sensitivity-relevant task.
 
-\textbf{Key finding 3: 9B local model closes the cloud gap.}
-Qwen3.5-9B ties with Qwen3.5-27B at 93.8\%---a larger model provides
-no accuracy benefit at 3.7$\times$ the inference time (5m23s vs.
-15m8s for a full 96-test run). The 9B variant represents the
-Pareto-optimal local configuration:
-{
-\small
-$$\text{Qwen3.5-9B}: \frac{93.8\%}{5\text{m23s}} = 17.4\%/\text{min} \quad\text{vs}\quad \text{27B}: \frac{93.8\%}{15\text{m8s}} = 6.2\%/\text{min}$$
-}
+\textbf{Key finding 3: Quantization precision matters more than parameter count.}
+Qwen3.5-27B at Q8\_K\_XL (95.8\%) outperforms the same model at Q4\_K\_M
+(93.8\%)---a 2-point lift from higher-precision quantization alone.
+Similarly, Mistral-119B at Q2\_K\_XL (89.6\%) outperforms its IQ1\_M
+variant (82.3\%) by 7.3~points. For accuracy-critical deployments,
+allocating more memory to higher-precision quants yields better results
+than increasing parameter count at aggressive quantization.
 
 \textbf{Key finding 4: Context preprocessing remains universally challenging.}
 All models---local and cloud---fail at least one context deduplication
@@ -978,7 +1007,7 @@ upper bound on the 60/96 observed result.
 
 \subsection{Deployment Decision Matrix}
 
-Based on our seven-model evaluation, we propose the following guidance:
+Based on our sixteen-model evaluation, we propose the following guidance:
 
 \begin{table}[h]
 \centering
@@ -1085,16 +1114,20 @@ event deduplication, prompt injection resistance, knowledge injection, and
 multi-turn contextual reasoning---providing a standardized, reproducible
 framework for comparing model suitability in video surveillance deployments.
 
-Evaluating seven model configurations on a single Apple~M5~Pro laptop
-reveals a fundamentally different landscape than the established
-consensus that cloud models are required for production AI accuracy.
-The \textbf{Qwen3.5-9B} achieves \textbf{93.8\%}---within 4.1 points
-of GPT-5.4 (97.9\%)---while running entirely locally with 13.8~GB of
-unified memory, zero API cost, and complete data privacy. The
-Qwen3.5-35B-MoE variant produces \textbf{lower first-token latency}
-(435~ms) than any cloud endpoint we tested (508~ms for GPT-5.4-nano),
-demonstrating that sparse MoE activation is a compelling architectural
-choice for latency-sensitive security alerting on consumer hardware.
+Evaluating sixteen model configurations across five model families on a
+single Apple~M5~Pro laptop reveals a fundamentally different landscape
+than the established consensus that cloud models are required for
+production AI accuracy. The \textbf{Qwen3.5-27B at Q8} achieves
+\textbf{95.8\%}---within 2.1~points of GPT-5.4 (97.9\%)---while running
+entirely locally with 30.2~GB of unified memory, zero API cost, and
+complete data privacy. \textbf{Mistral Small~4} (119B) at Q2\_K\_XL
+scores \textbf{89.6\%}, establishing that 119B-class thinking models
+can serve as effective security assistants on consumer hardware when
+reasoning tokens are suppressed. The Qwen3.5-35B-MoE variant produces
+\textbf{lower first-token latency} (435~ms) than any cloud endpoint
+tested (508~ms for GPT-5.4-nano), demonstrating that sparse MoE
+activation is a compelling architectural choice for latency-sensitive
+security alerting.
 
 Security classification is universally robust (100\% across all models),
 validating local inference for the most consequence-heavy task.
