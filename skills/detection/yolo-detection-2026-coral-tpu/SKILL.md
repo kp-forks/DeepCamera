@@ -9,6 +9,7 @@ runtime: docker
 
 requirements:
   docker: ">=20.10"
+  usb: true
   platforms: ["linux", "macos", "windows"]
 
 parameters:
