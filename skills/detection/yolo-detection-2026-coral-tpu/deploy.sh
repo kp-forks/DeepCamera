@@ -41,8 +41,24 @@ ask_sudo() {
     local success=0
     
     if [ "$PLATFORM" = "Darwin" ]; then
-        # Use native macOS GUI authorization (TouchID/Password)
-        if ! osascript -e "do shell script \"$cmd\" with administrator privileges" >/dev/null 2>&1; then
+        # Use native macOS GUI authorization with an interactive prelude dialog
+        local apple_script="
+            try
+                set dialogMessage to \"Aegis requires Admin Privileges to install Native drivers:\n\n$cmd\n\nIf approved, a secure OS dialog will request your password. Aegis is blind to your input.\n\nIf you prefer to execute this manually, choose 'Manual Install'.\"
+                set userChoice to button returned of (display dialog dialogMessage buttons {\"Manual Install\", \"Approve\"} default button \"Approve\" with title \"Aegis Hardware Setup\" with icon caution)
+                
+                if userChoice is \"Approve\" then
+                    do shell script \"$cmd\" with administrator privileges
+                    return 0
+                else
+                    error \"User declined\"
+                end if
+            on error
+                error \"Action failed or cancelled\"
+            end try
+        "
+        
+        if ! osascript -e "$apple_script" >/dev/null 2>&1; then
             success=1
         fi
     elif [ "$PLATFORM" = "Linux" ]; then
