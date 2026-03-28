@@ -5,12 +5,23 @@ version: 1.0.0
 icon: assets/icon.png
 entry: scripts/monitor.js
 deploy: deploy.sh
-runtime: docker
+runtime: node
 
 requirements:
-  docker: ">=20.10"
-  usb: true
   platforms: ["linux", "macos", "windows"]
+
+manual_setup:
+  macos: |
+    # 1. Fix Homebrew permissions and install libusb
+    sudo chown -R $(whoami) /opt/homebrew
+    brew install libusb
+
+    # 2. Add Apple Silicon Edge TPU native driver
+    curl -sSLO https://github.com/feranick/libedgetpu/releases/download/16.0TF2.19.1-1/libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
+    unzip -q -o libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
+    sudo mkdir -p /usr/local/lib
+    sudo cp libedgetpu.1.dylib /usr/local/lib/
+    rm -rf libedgetpu*
 
 parameters:
   - name: auto_start

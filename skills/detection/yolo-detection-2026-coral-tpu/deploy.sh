@@ -1,128 +1,109 @@
 #!/usr/bin/env bash
-# deploy.sh — Docker-based bootstrapper for Coral TPU Detection Skill
+# deploy.sh — Native local bootstrapper for Coral TPU Detection Skill
 #
-# Builds the Docker image locally and verifies Edge TPU connectivity.
+# Builds a local Python virtual environment and verifies Edge TPU connectivity.
 # Called by Aegis skill-runtime-manager during installation.
 #
 # Exit codes:
 #   0 = success
-#   1 = fatal error (Docker not found)
+#   1 = fatal error (Python/pip not found)
 #   2 = partial success (no TPU detected, will use CPU fallback)
 
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
-IMAGE_NAME="aegis-coral-tpu"
-IMAGE_TAG="latest"
 LOG_PREFIX="[coral-tpu-deploy]"
 
 log()  { echo "$LOG_PREFIX $*" >&2; }
 emit() { echo "$1"; }  # JSON to stdout for Aegis to parse
 
-# ─── Step 1: Check Docker ────────────────────────────────────────────────────
-
-find_docker() {
-    for cmd in docker podman; do
-        if command -v "$cmd" &>/dev/null; then
-            echo "$cmd"
-            return 0
-        fi
-    done
-    return 1
-}
-
-DOCKER_CMD=$(find_docker) || {
-    log "ERROR: Docker (or Podman) not found. Install Docker Desktop 4.35+ and retry."
-    emit '{"event": "error", "stage": "docker", "message": "Docker not found. Install Docker Desktop 4.35+"}'
-    exit 1
-}
-
-# Verify Docker is running
-if ! "$DOCKER_CMD" info &>/dev/null; then
-    log "ERROR: Docker daemon is not running. Start Docker Desktop and retry."
-    emit '{"event": "error", "stage": "docker", "message": "Docker daemon not running"}'
-    exit 1
-fi
-
-DOCKER_VER=$("$DOCKER_CMD" version --format '{{.Server.Version}}' 2>/dev/null || echo "unknown")
-log "Using $DOCKER_CMD (version: $DOCKER_VER)"
-emit "{\"event\": \"progress\", \"stage\": \"docker\", \"message\": \"Docker ready ($DOCKER_VER)\"}"
-
-# ─── Step 2: Detect platform for USB access hints ───────────────────────────
+# ─── Step 1: Detect Platform ────────────────────────────────────────────────
 
 PLATFORM="$(uname -s)"
 ARCH="$(uname -m)"
-USB_FLAG=""
-
-case "$PLATFORM" in
-    Linux)
-        USB_FLAG="--device /dev/bus/usb"
-        log "Platform: Linux — will use --device /dev/bus/usb"
-        ;;
-    Darwin)
-        log "Platform: macOS ($ARCH) — Docker Desktop 4.35+ USB/IP required"
-        log "Ensure Docker Desktop Settings → Features → USB devices is enabled"
-        # macOS Docker Desktop 4.35+ handles USB/IP transparently
-        # No --device flag needed, but privileged may be required
-        USB_FLAG="--privileged"
-        ;;
-    MINGW*|MSYS*|CYGWIN*)
-        log "Platform: Windows — Docker Desktop 4.35+ USB/IP or WSL2 backend"
-        USB_FLAG="--privileged"
-        ;;
-    *)
-        log "Platform: Unknown ($PLATFORM) — attempting with --privileged"
-        USB_FLAG="--privileged"
-        ;;
-esac
-
+log "Platform: $PLATFORM ($ARCH)"
 emit "{\"event\": \"progress\", \"stage\": \"platform\", \"message\": \"Platform: $PLATFORM/$ARCH\"}"
 
-# ─── Step 3: Build Docker image ─────────────────────────────────────────────
+if [ "$PLATFORM" = "Linux" ]; then
+    log "Linux: ensuring system packages are installed..."
+    emit '{"event": "progress", "stage": "platform", "message": "Ensuring Linux dependencies..."}'
+    sudo apt-get update >/dev/null 2>&1 || true
+    sudo apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv libusb-1.0-0 >/dev/null 2>&1 || true
+fi
 
-log "Building Docker image: $IMAGE_NAME:$IMAGE_TAG ..."
-emit '{"event": "progress", "stage": "build", "message": "Building Docker image (this may take a few minutes)..."}'
+# ─── Step 2: Ensure Python 3 ────────────────────────────────────────────────
 
-if "$DOCKER_CMD" build -t "$IMAGE_NAME:$IMAGE_TAG" "$SKILL_DIR" 2>&1 | while read -r line; do
-    log "$line"
-done; then
-    log "Docker image built successfully"
-    emit '{"event": "progress", "stage": "build", "message": "Docker image ready"}'
-else
-    log "ERROR: Docker build failed"
-    emit '{"event": "error", "stage": "build", "message": "Docker image build failed"}'
+if ! command -v python3 &>/dev/null; then
+    log "ERROR: Python 3 not found."
+    emit '{"event": "error", "stage": "python", "message": "Python 3 not found"}'
     exit 1
 fi
 
-# ─── Step 4: Probe for Edge TPU devices ──────────────────────────────────────
+PYTHON_CMD="python3"
+log "Using Python: $($PYTHON_CMD --version)"
+emit '{"event": "progress", "stage": "python", "message": "Python verified"}'
 
-log "Probing for Edge TPU devices..."
-emit '{"event": "progress", "stage": "probe", "message": "Checking for Edge TPU devices..."}'
+# ─── Step 3: Create Virtual Environment ─────────────────────────────────────
+
+VENV_DIR="$SKILL_DIR/venv"
+log "Setting up virtual environment in $VENV_DIR..."
+emit '{"event": "progress", "stage": "build", "message": "Creating Python virtual environment..."}'
+
+"$PYTHON_CMD" -m venv "$VENV_DIR"
+
+# Ensure the venv works
+if [ ! -f "$VENV_DIR/bin/python" ]; then
+    log "ERROR: Failed to create virtual environment."
+    emit '{"event": "error", "stage": "build", "message": "Failed to create venv"}'
+    exit 1
+fi
+
+# ─── Step 4: Install Dependencies ───────────────────────────────────────────
+
+log "Installing Python dependencies (this may take a minute)..."
+emit '{"event": "progress", "stage": "build", "message": "Installing ai-edge-litert and dependencies..."}'
+
+# Upgrade pip securely
+"$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null 2>&1 || true
+
+# Install requirements
+if ! "$VENV_DIR/bin/python" -m pip install -r "$SKILL_DIR/requirements.txt"; then
+    log "ERROR: Failed to install Python dependencies."
+    emit '{"event": "error", "stage": "build", "message": "pip install failed"}'
+    exit 1
+fi
+
+log "Dependencies installed successfully."
+emit '{"event": "progress", "stage": "build", "message": "Python environment ready"}'
+
+# ─── Step 5: Probe for Edge TPU devices ──────────────────────────────────────
+
+log "Probing for Edge TPU devices natively..."
+emit '{"event": "progress", "stage": "probe", "message": "Checking for physical Edge TPU..."}'
 
 TPU_FOUND=false
-PROBE_OUTPUT=$("$DOCKER_CMD" run --rm $USB_FLAG \
-    "$IMAGE_NAME:$IMAGE_TAG" python3 scripts/tpu_probe.py 2>/dev/null) || true
+# Run probe inside the venv
+PROBE_OUTPUT=$("$VENV_DIR/bin/python" "$SKILL_DIR/scripts/tpu_probe.py" 2>/dev/null) || true
 
 if echo "$PROBE_OUTPUT" | grep -q '"available": true'; then
-    TPU_COUNT=$(echo "$PROBE_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])" 2>/dev/null || echo "?")
+    TPU_COUNT=$(echo "$PROBE_OUTPUT" | "$VENV_DIR/bin/python" -c "import sys,json; print(json.load(sys.stdin)['count'])" 2>/dev/null || echo "?")
     TPU_FOUND=true
     log "Edge TPU detected: $TPU_COUNT device(s)"
-    emit "{\"event\": \"progress\", \"stage\": \"probe\", \"message\": \"Found $TPU_COUNT Edge TPU device(s)\"}"
+    emit "{\"event\": \"progress\", \"stage\": \"probe\", \"message\": \"Found $TPU_COUNT Edge TPU device(s) natively\"}"
 else
     log "WARNING: No Edge TPU detected — skill will run in CPU fallback mode"
     emit '{"event": "progress", "stage": "probe", "message": "No Edge TPU detected — CPU fallback available"}'
 fi
 
-# ─── Step 5: Complete ────────────────────────────────────────────────────────
-
 # ─── Step 6: Complete ────────────────────────────────────────────────────────
 
 if [ "$TPU_FOUND" = true ]; then
-    emit "{\"event\": \"complete\", \"status\": \"success\", \"tpu_found\": true, \"message\": \"Coral TPU skill installed — Edge TPU ready\"}"
+    emit "{\"event\": \"complete\", \"status\": \"success\", \"tpu_found\": true, \"message\": \"Native Coral TPU skill installed — Edge TPU ready\"}"
     log "Done! Edge TPU ready."
     exit 0
 else
-    emit "{\"event\": \"complete\", \"status\": \"partial\", \"tpu_found\": false, \"message\": \"Coral TPU skill installed — no TPU detected (CPU fallback)\"}"
+    emit "{\"event\": \"complete\", \"status\": \"partial\", \"tpu_found\": false, \"message\": \"Native Coral TPU skill installed — no TPU detected (CPU fallback)\"}"
     log "Done with warning: no TPU detected. Connect Coral USB and restart."
     exit 2
 fi
