@@ -88,6 +88,40 @@ emit '{"event": "progress", "stage": "install", "message": "Installing ai-edge-l
 log "Python dependencies installed"
 emit '{"event": "progress", "stage": "install", "message": "Dependencies installed"}'
 
+# ─── Step 3b: Download Edge TPU model if not present ─────────────────────────
+
+MODEL_DIR="$SKILL_DIR/models"
+mkdir -p "$MODEL_DIR"
+
+if ! ls "$MODEL_DIR"/*.tflite 1>/dev/null 2>&1; then
+    log "No .tflite model found — downloading default EfficientDet-Lite0 Edge TPU model..."
+    emit '{"event": "progress", "stage": "model", "message": "Downloading Edge TPU detection model..."}'
+
+    # EfficientDet-Lite0 — 320x320 INT8, compiled for Edge TPU
+    # Source: https://coral.ai/models/object-detection/
+    MODEL_URL="https://raw.githubusercontent.com/google-coral/test_data/master/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite"
+    LABELS_URL="https://raw.githubusercontent.com/google-coral/test_data/master/coco_labels.txt"
+
+    if curl -fSL "$MODEL_URL" -o "$MODEL_DIR/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite" 2>&1; then
+        log "Model downloaded: ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite"
+    else
+        log "ERROR: Failed to download Edge TPU model"
+        emit '{"event": "error", "stage": "model", "message": "Failed to download model"}'
+        exit 1
+    fi
+
+    # Also download the CPU-only variant for fallback
+    CPU_MODEL_URL="https://raw.githubusercontent.com/google-coral/test_data/master/ssd_mobilenet_v2_coco_quant_postprocess.tflite"
+    curl -fSL "$CPU_MODEL_URL" -o "$MODEL_DIR/ssd_mobilenet_v2_coco_quant_postprocess.tflite" 2>&1 || true
+
+    # Download labels
+    curl -fSL "$LABELS_URL" -o "$MODEL_DIR/coco_labels.txt" 2>&1 || true
+
+    emit '{"event": "progress", "stage": "model", "message": "Model downloaded ✓"}'
+else
+    log "Model already present in $MODEL_DIR"
+fi
+
 # ─── Step 4: Check libedgetpu (platform-specific) ───────────────────────────
 
 log "Checking for libedgetpu hardware driver..."
