@@ -1,20 +1,34 @@
 #!/usr/bin/env python3
 """
-Coral TPU Device Probe — enumerates connected Edge TPU devices.
+Coral TPU Device Probe — tests Edge TPU delegate availability.
 
-Outputs JSON to stdout for Aegis skill deployment verification.
+Uses ai-edge-litert (LiteRT) to check if libedgetpu is installed and
+an Edge TPU device is accessible. Outputs JSON to stdout for Aegis
+skill deployment verification.
 
 Usage:
   python scripts/tpu_probe.py
-  docker run --device /dev/bus/usb aegis-coral-tpu python3 scripts/tpu_probe.py
 """
 
 import json
+import platform
 import sys
 
 
+def _edgetpu_lib_name():
+    """Return the platform-specific libedgetpu shared library name."""
+    system = platform.system()
+    if system == "Linux":
+        return "libedgetpu.so.1"
+    elif system == "Darwin":
+        return "libedgetpu.1.dylib"
+    elif system == "Windows":
+        return "edgetpu.dll"
+    return "libedgetpu.so.1"
+
+
 def probe_tpus():
-    """Enumerate Edge TPU devices and return info dict."""
+    """Test Edge TPU delegate loading and return probe info dict."""
     result = {
         "event": "tpu_probe",
         "available": False,
@@ -24,40 +38,34 @@ def probe_tpus():
         "error": None,
     }
 
-    # Check pycoral availability
+    # Check ai-edge-litert availability
     try:
-        from pycoral.utils.edgetpu import list_edge_tpus
-        result["runtime"] = "pycoral"
+        from ai_edge_litert import interpreter as litert
+        result["runtime"] = "ai-edge-litert"
     except ImportError:
-        result["error"] = "pycoral not installed"
-        # Try tflite-runtime as fallback
-        try:
-            import tflite_runtime.interpreter as tflite
-            result["runtime"] = "tflite-runtime (no Edge TPU delegate)"
-            # Can't enumerate TPUs without pycoral
-            result["error"] = "pycoral required for TPU enumeration"
-        except ImportError:
-            result["runtime"] = None
-            result["error"] = "Neither pycoral nor tflite-runtime installed"
+        result["runtime"] = None
+        result["error"] = "ai-edge-litert not installed. Run: pip install ai-edge-litert"
         return result
 
-    # Enumerate TPUs
+    # Try loading Edge TPU delegate
+    edgetpu_lib = _edgetpu_lib_name()
     try:
-        tpus = list_edge_tpus()
-        result["count"] = len(tpus)
-        result["available"] = len(tpus) > 0
+        delegate = litert.load_delegate(edgetpu_lib)
+        result["available"] = True
+        result["count"] = 1
+        result["devices"].append({
+            "index": 0,
+            "type": "usb",
+            "delegate": edgetpu_lib,
+        })
+    except (ValueError, OSError) as e:
+        error_str = str(e)
+        if "libedgetpu" in error_str.lower() or "not found" in error_str.lower():
+            result["error"] = f"libedgetpu not installed: {error_str}"
+        else:
+            result["error"] = f"Edge TPU not accessible: {error_str}"
 
-        for i, tpu in enumerate(tpus):
-            device_info = {
-                "index": i,
-                "type": tpu.get("type", "unknown") if isinstance(tpu, dict) else str(tpu),
-            }
-            result["devices"].append(device_info)
-
-    except Exception as e:
-        result["error"] = f"Failed to enumerate TPUs: {str(e)}"
-
-    # Check USB devices for additional context
+    # Check USB devices for additional context (Linux only)
     try:
         import subprocess
         lsusb = subprocess.run(
@@ -71,7 +79,7 @@ def probe_tpus():
         if coral_lines:
             result["usb_devices"] = coral_lines
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # lsusb not available
+        pass  # lsusb not available (macOS, Windows)
 
     return result
 
@@ -84,9 +92,9 @@ def main():
     if result["available"]:
         sys.stderr.write(f"✓ Found {result['count']} Edge TPU device(s)\n")
         for dev in result["devices"]:
-            sys.stderr.write(f"  [{dev['index']}] {dev['type']}\n")
+            sys.stderr.write(f"  [{dev['index']}] {dev['type']} via {dev.get('delegate', '?')}\n")
     else:
-        sys.stderr.write(f"✗ No Edge TPU detected\n")
+        sys.stderr.write("✗ No Edge TPU detected\n")
         if result["error"]:
             sys.stderr.write(f"  Error: {result['error']}\n")
 

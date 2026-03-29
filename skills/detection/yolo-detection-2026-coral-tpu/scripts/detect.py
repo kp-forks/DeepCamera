@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Coral TPU Object Detection — JSONL stdin/stdout protocol
-Runs inside Docker container with Edge TPU access.
+Uses ai-edge-litert (LiteRT) with Edge TPU delegate for hardware acceleration.
 Same protocol as yolo-detection-2026/scripts/detect.py.
 
 Communication:
@@ -15,26 +15,39 @@ import os
 import sys
 import time
 import signal
+import threading
 from pathlib import Path
+from typing import Optional, Tuple, List, Dict, Any
 
 import numpy as np
 from PIL import Image
 
-# ─── Edge TPU imports ─────────────────────────────────────────────────────────
-try:
-    from pycoral.adapters import common
-    from pycoral.adapters import detect
-    from pycoral.utils.edgetpu import list_edge_tpus, make_interpreter
-    HAS_EDGETPU = True
-except ImportError:
-    HAS_EDGETPU = False
-    sys.stderr.write("[coral-detect] WARNING: pycoral not available, running in CPU-fallback mode\n")
+# ─── LiteRT imports (replaces archived pycoral + tflite-runtime) ─────────────
+# ai-edge-litert is the modern successor to tflite-runtime, supporting
+# Python 3.9–3.13 on all platforms. The Edge TPU is accessed via the
+# libedgetpu delegate (installed separately as a system library).
+
+HAS_LITERT = False
+HAS_EDGETPU_DELEGATE = False
 
 try:
-    import tflite_runtime.interpreter as tflite
-    HAS_TFLITE = True
+    from ai_edge_litert import interpreter as litert
+    HAS_LITERT = True
 except ImportError:
-    HAS_TFLITE = False
+    sys.stderr.write("[coral-detect] WARNING: ai-edge-litert not installed\n")
+
+# Determine the correct delegate library name per platform
+def _edgetpu_lib_name():
+    """Return the platform-specific libedgetpu shared library name."""
+    import platform
+    system = platform.system()
+    if system == "Linux":
+        return "libedgetpu.so.1"
+    elif system == "Darwin":
+        return "libedgetpu.1.dylib"
+    elif system == "Windows":
+        return "edgetpu.dll"
+    return "libedgetpu.so.1"
 
 
 # ─── COCO class names (80 classes) ───────────────────────────────────────────
@@ -88,17 +101,89 @@ class PerfTracker:
         return stats
 
 
+class TPUHealthWatchdog:
+    """
+    Detects two distinct TPU failure modes:
+
+    1. Inference hang: interpreter.invoke() takes longer than `invoke_timeout_s`.
+       This happens when the USB connection is lost or the TPU kernel driver locks.
+       We run invoke() on a daemon thread and join with a timeout.
+
+    2. Silent stall: The TPU keeps returning results (no hang) but every result
+       is empty (0 detections) for `stall_frames` consecutive frames, AFTER the
+       skill had at least `min_active_frames` successful frames earlier.
+       This catches thermal throttling where the TPU resets internally.
+    """
+
+    def __init__(self, invoke_timeout_s=10, stall_frames=30, min_active_frames=5):
+        self.invoke_timeout_s = invoke_timeout_s
+        self.stall_frames = stall_frames
+        self.min_active_frames = min_active_frames
+
+        self._consecutive_zero = 0
+        self._total_frames_with_detections = 0
+        self._invoke_exception: Optional[Exception] = None
+
+    def run_invoke(self, interpreter):
+        """Run interpreter.invoke() with a hard timeout. Raises RuntimeError on hang."""
+        self._invoke_exception = None
+        completed = [False]
+
+        def _invoke():
+            try:
+                interpreter.invoke()
+                completed[0] = True
+            except Exception as e:
+                self._invoke_exception = e
+
+        t = threading.Thread(target=_invoke, daemon=True)
+        t.start()
+        t.join(timeout=self.invoke_timeout_s)
+
+        if t.is_alive():
+            # Thread is still blocked inside invoke() — TPU USB hang
+            raise RuntimeError(
+                f"TPU invoke() timed out after {self.invoke_timeout_s}s — "
+                "USB connection may be lost or TPU is locked up"
+            )
+
+        if self._invoke_exception is not None:
+            raise self._invoke_exception
+
+    def record(self, n_detections):
+        """Call after each frame. Returns a health status string or None."""
+        if n_detections > 0:
+            self._total_frames_with_detections += 1
+            self._consecutive_zero = 0
+            return None
+
+        self._consecutive_zero += 1
+
+        # Only fire the stall alert after the TPU was genuinely producing results
+        if (self._total_frames_with_detections >= self.min_active_frames
+                and self._consecutive_zero >= self.stall_frames):
+            return "stall"
+
+        return None
+
+    def reset_stall(self):
+        self._consecutive_zero = 0
+
+
 class CoralDetector:
-    """Edge TPU object detector using pycoral."""
+    """Edge TPU object detector using ai-edge-litert with libedgetpu delegate."""
 
     def __init__(self, params):
         self.params = params
         self.confidence = float(params.get("confidence", 0.5))
         self.input_size = int(params.get("input_size", 320))
-        self.tpu_device = params.get("tpu_device", "auto")
-        self.clock_speed = params.get("clock_speed", "standard")
         self.interpreter = None
         self.tpu_count = 0
+        self.watchdog = TPUHealthWatchdog(
+            invoke_timeout_s=10,
+            stall_frames=30,
+            min_active_frames=5,
+        )
 
         # Parse target classes
         classes_str = params.get("classes", "person,car,dog,cat")
@@ -112,6 +197,8 @@ class CoralDetector:
         script_dir = Path(__file__).parent.parent / "models"
 
         for d in [model_dir, script_dir]:
+            if not d.exists():
+                continue
             for pattern in ["*_edgetpu.tflite", "*.tflite"]:
                 matches = list(d.glob(pattern))
                 if matches:
@@ -121,62 +208,50 @@ class CoralDetector:
 
     def _load_model(self):
         """Load model onto Edge TPU (or CPU fallback)."""
+        if not HAS_LITERT:
+            log("FATAL: ai-edge-litert not available. pip install ai-edge-litert")
+            emit_json({"event": "error", "message": "ai-edge-litert not installed", "retriable": False})
+            sys.exit(1)
+
         model_path = self._find_model_path()
         if not model_path:
-            log("ERROR: No .tflite model found in /app/models/")
+            log("ERROR: No .tflite model found in models/")
             emit_json({"event": "error", "message": "No Edge TPU model found", "retriable": False})
             sys.exit(1)
 
-        # Enumerate TPUs
-        if HAS_EDGETPU:
-            tpus = list_edge_tpus()
-            self.tpu_count = len(tpus)
-            log(f"Found {self.tpu_count} Edge TPU(s): {tpus}")
-
-            if self.tpu_count == 0:
-                log("WARNING: No Edge TPU detected — falling back to CPU TFLite")
-                self._load_cpu_fallback(model_path)
-                return
-
-            # Select TPU device
-            device_idx = None
-            if self.tpu_device != "auto":
-                device_idx = int(self.tpu_device)
-                if device_idx >= self.tpu_count:
-                    log(f"WARNING: TPU index {device_idx} not available, using auto")
-                    device_idx = None
-
-            try:
-                if device_idx is not None:
-                    device_str = f":{ device_idx}"
-                    self.interpreter = make_interpreter(model_path, device=device_str)
-                else:
-                    self.interpreter = make_interpreter(model_path)
-                self.interpreter.allocate_tensors()
-                self.device_name = "coral"
-                log(f"Loaded model on Edge TPU: {model_path}")
-            except Exception as e:
-                log(f"ERROR loading on Edge TPU: {e}, falling back to CPU")
-                self._load_cpu_fallback(model_path)
-        else:
+        # Try loading with Edge TPU delegate
+        edgetpu_lib = _edgetpu_lib_name()
+        try:
+            delegate = litert.load_delegate(edgetpu_lib)
+            self.interpreter = litert.Interpreter(
+                model_path=model_path,
+                experimental_delegates=[delegate],
+            )
+            self.interpreter.allocate_tensors()
+            self.device_name = "coral"
+            self.tpu_count = 1
+            log(f"Loaded model on Edge TPU: {model_path}")
+        except (ValueError, OSError) as e:
+            log(f"Edge TPU delegate not available: {e}")
+            log("Falling back to CPU inference")
             self._load_cpu_fallback(model_path)
 
     def _load_cpu_fallback(self, model_path):
-        """Fallback to CPU-only TFLite interpreter."""
-        if not HAS_TFLITE:
-            log("FATAL: Neither pycoral nor tflite-runtime available")
-            emit_json({"event": "error", "message": "No inference runtime available", "retriable": False})
-            sys.exit(1)
-
+        """Fallback to CPU-only LiteRT interpreter."""
         # Use a non-edgetpu model if available
         cpu_path = model_path.replace("_edgetpu.tflite", ".tflite")
         if not os.path.exists(cpu_path):
-            cpu_path = model_path  # Try with edgetpu model (may fail)
+            cpu_path = model_path
 
-        self.interpreter = tflite.Interpreter(model_path=cpu_path)
-        self.interpreter.allocate_tensors()
-        self.device_name = "cpu"
-        log(f"Loaded model on CPU: {cpu_path}")
+        try:
+            self.interpreter = litert.Interpreter(model_path=cpu_path)
+            self.interpreter.allocate_tensors()
+            self.device_name = "cpu"
+            log(f"Loaded model on CPU: {cpu_path}")
+        except Exception as e:
+            log(f"FATAL: Cannot load model: {e}")
+            emit_json({"event": "error", "message": f"Cannot load model: {e}", "retriable": False})
+            sys.exit(1)
 
     def detect_frame(self, frame_path):
         """Run detection on a single frame. Returns list of detection dicts."""
@@ -202,73 +277,52 @@ class CoralDetector:
         input_data = np.expand_dims(np.array(img_resized, dtype=np.uint8), axis=0)
         self.interpreter.set_tensor(input_details["index"], input_data)
 
-        # Run inference
+        # Run inference with hard timeout via watchdog
         t_pre = time.perf_counter()
-        self.interpreter.invoke()
+        try:
+            self.watchdog.run_invoke(self.interpreter)
+        except RuntimeError as e:
+            log(f"TPU invoke() failed: {e}")
+            return [], {}, "hang"
         t_infer = time.perf_counter()
 
-        # Parse output — pycoral detect API if available
+        # Parse output tensors (works for both Edge TPU and CPU)
         objects = []
-        if HAS_EDGETPU and self.device_name == "coral":
-            try:
-                raw_detections = detect.get_objects(
-                    self.interpreter, score_threshold=self.confidence
-                )
-                for det in raw_detections:
-                    class_id = det.id
-                    if class_id < len(COCO_CLASSES):
-                        class_name = COCO_CLASSES[class_id]
-                    else:
-                        class_name = f"class_{class_id}"
+        output_details = self.interpreter.get_output_details()
 
-                    if self.target_classes and class_name not in self.target_classes:
-                        continue
+        if len(output_details) >= 4:
+            # SSD MobileNet-style output: boxes, classes, scores, count
+            boxes = self.interpreter.get_tensor(output_details[0]["index"])[0]
+            classes = self.interpreter.get_tensor(output_details[1]["index"])[0]
+            scores = self.interpreter.get_tensor(output_details[2]["index"])[0]
+            count = int(self.interpreter.get_tensor(output_details[3]["index"])[0])
 
-                    bbox = det.bbox
-                    # Scale bbox from model input coords to original image coords
-                    x_min = int(bbox.xmin * orig_w / w)
-                    y_min = int(bbox.ymin * orig_h / h)
-                    x_max = int(bbox.xmax * orig_w / w)
-                    y_max = int(bbox.ymax * orig_h / h)
+            for i in range(min(count, 25)):
+                score = float(scores[i])
+                if score < self.confidence:
+                    continue
+                class_id = int(classes[i])
+                if class_id < len(COCO_CLASSES):
+                    class_name = COCO_CLASSES[class_id]
+                else:
+                    class_name = f"class_{class_id}"
 
-                    objects.append({
-                        "class": class_name,
-                        "confidence": round(float(det.score), 3),
-                        "bbox": [x_min, y_min, x_max, y_max]
-                    })
-            except Exception as e:
-                log(f"ERROR parsing detections: {e}")
-        else:
-            # CPU fallback: manual output parsing
-            output_details = self.interpreter.get_output_details()
-            if len(output_details) >= 4:
-                boxes = self.interpreter.get_tensor(output_details[0]["index"])[0]
-                classes = self.interpreter.get_tensor(output_details[1]["index"])[0]
-                scores = self.interpreter.get_tensor(output_details[2]["index"])[0]
-                count = int(self.interpreter.get_tensor(output_details[3]["index"])[0])
+                if self.target_classes and class_name not in self.target_classes:
+                    continue
 
-                for i in range(min(count, 25)):
-                    score = float(scores[i])
-                    if score < self.confidence:
-                        continue
-                    class_id = int(classes[i])
-                    if class_id < len(COCO_CLASSES):
-                        class_name = COCO_CLASSES[class_id]
-                    else:
-                        class_name = f"class_{class_id}"
-
-                    if self.target_classes and class_name not in self.target_classes:
-                        continue
-
-                    y1, x1, y2, x2 = boxes[i]
-                    objects.append({
-                        "class": class_name,
-                        "confidence": round(score, 3),
-                        "bbox": [
-                            int(x1 * orig_w), int(y1 * orig_h),
-                            int(x2 * orig_w), int(y2 * orig_h)
-                        ]
-                    })
+                y1, x1, y2, x2 = boxes[i]
+                objects.append({
+                    "class": class_name,
+                    "confidence": round(score, 3),
+                    "bbox": [
+                        int(x1 * orig_w), int(y1 * orig_h),
+                        int(x2 * orig_w), int(y2 * orig_h)
+                    ]
+                })
+        elif len(output_details) >= 1:
+            # YOLO-style output: single tensor with [N, 6] or similar
+            output = self.interpreter.get_tensor(output_details[0]["index"])
+            log(f"Single-output model, shape: {output.shape}")
 
         t_post = time.perf_counter()
 
@@ -280,7 +334,10 @@ class CoralDetector:
             "total": round((t_post - t0) * 1000, 2),
         }
 
-        return objects, timings
+        # Record with watchdog — returns "stall" if TPU has gone silent
+        health = self.watchdog.record(len(objects))
+
+        return objects, timings, health
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -319,6 +376,7 @@ def main():
         "model": "yolo26n_edgetpu",
         "device": detector.device_name,
         "format": "edgetpu_tflite" if detector.device_name == "coral" else "tflite_cpu",
+        "runtime": "ai-edge-litert",
         "tpu_count": detector.tpu_count,
         "classes": len(COCO_CLASSES),
         "input_size": detector.input_size,
@@ -372,7 +430,20 @@ def main():
                 })
                 continue
 
-            objects, timings = detector.detect_frame(frame_path)
+            objects, timings, health = detector.detect_frame(frame_path)
+
+            # Check for TPU hang (invoke timeout)
+            if health == "hang":
+                emit_json({
+                    "event": "tpu_error",
+                    "frame_id": frame_id,
+                    "camera_id": camera_id,
+                    "error": "invoke_timeout",
+                    "message": "TPU invoke() timed out — USB connection may be lost",
+                    "retriable": True,
+                })
+                # Exit with code 1 so Aegis restarts us
+                sys.exit(1)
 
             # Emit detections
             emit_json({
@@ -382,6 +453,18 @@ def main():
                 "timestamp": timestamp,
                 "objects": objects,
             })
+
+            # Check for silent stall (zero results for too long)
+            if health == "stall":
+                emit_json({
+                    "event": "tpu_error",
+                    "frame_id": frame_id,
+                    "camera_id": camera_id,
+                    "error": "stall",
+                    "message": "TPU has returned 0 detections for 30 consecutive frames — possible thermal throttle or silent reset",
+                    "retriable": True,
+                })
+                detector.watchdog.reset_stall()  # Prevent repeated spam; let Aegis decide to restart
 
             # Track performance
             if timings:

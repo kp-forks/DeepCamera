@@ -1,15 +1,16 @@
 ---
 name: yolo-detection-2026-coral-tpu
-description: "Google Coral Edge TPU — real-time object detection via Docker"
+description: "Google Coral Edge TPU — real-time object detection natively via local Python environment"
 version: 1.0.0
 icon: assets/icon.png
 entry: scripts/detect.py
 deploy: deploy.sh
-runtime: docker
+runtime: python
 
 requirements:
-  docker: ">=20.10"
   platforms: ["linux", "macos", "windows"]
+
+
 
 parameters:
   - name: auto_start
@@ -78,13 +79,13 @@ mutex: detection
 
 # Coral TPU Object Detection
 
-Real-time object detection using Google Coral Edge TPU accelerator. Runs inside Docker for cross-platform support. Detects 80 COCO classes (person, car, dog, cat, etc.) with ~4ms inference on 320×320 input.
+Real-time object detection natively utilizing the Google Coral Edge TPU accelerator on your local hardware. Detects 80 COCO classes (person, car, dog, cat, etc.) with ~4ms inference on 320x320 input.
 
 ## Requirements
 
 - **Google Coral USB Accelerator** (USB 3.0 port recommended)
-- **Docker Desktop 4.35+** (all platforms — Linux, macOS, Windows)
-- USB 3.0 cable (the included cable is recommended)
+- **libusb** framework (installed automatically on Linux/macOS)
+- Python 3 with the native `pycoral` environment
 - Adequate cooling for sustained inference
 
 ## How It Works
@@ -94,61 +95,50 @@ Real-time object detection using Google Coral Edge TPU accelerator. Runs inside 
 │ Host (Aegis-AI)                                     │
 │   frame.jpg → /tmp/aegis_detection/                 │
 │   stdin  ──→ ┌──────────────────────────────┐       │
-│              │ Docker Container              │       │
+│              │ Native Python Environment     │       │
 │              │   detect.py                   │       │
 │              │   ├─ loads _edgetpu.tflite     │       │
-│              │   ├─ reads frame from volume   │       │
+│              │   ├─ reads frame from disk     │       │
 │              │   └─ runs inference on TPU    │       │
 │   stdout ←── │   → JSONL detections          │       │
 │              └──────────────────────────────┘       │
-│   USB ──→ /dev/bus/usb (Linux) or USB/IP (Mac/Win) │
+│   USB ──→ Native System USB / edgetpu drivers       │
 └─────────────────────────────────────────────────────┘
 ```
 
-1. Aegis writes camera frame JPEG to shared `/tmp/aegis_detection/` volume
-2. Sends `frame` event via stdin JSONL to Docker container
-3. `detect.py` reads frame, runs inference on Edge TPU
+1. Aegis writes camera frame JPEG to shared `/tmp/aegis_detection/` workspace
+2. Sends `frame` event via stdin JSONL to the local Python instance
+3. `detect.py` invokes PyCoral and executes natively on the mapped USB Edge TPU
 4. Returns `detections` event via stdout JSONL
-5. Same protocol as `yolo-detection-2026` — Aegis sees no difference
 
 ## Platform Setup
 
 ### Linux
 ```bash
-# USB Coral should be auto-detected
-# Docker uses --device /dev/bus/usb for direct access
+# Uses the official apt-get google-coral packages natively
 ./deploy.sh
 ```
 
-### macOS (Docker Desktop 4.35+)
+### macOS 
 ```bash
-# Docker Desktop USB/IP handles USB passthrough
-# ARM64 Docker image builds natively on Apple Silicon
+# Downloads and installs the libedgetpu OS payload framework inline
 ./deploy.sh
 ```
 
 ### Windows
 ```powershell
-# Docker Desktop 4.35+ with USB/IP support
-# Or WSL2 backend with usbipd-win
+# Installs directly to the Microsoft runtime
 .\deploy.bat
 ```
 
-## Model
-
-Ships with pre-compiled `yolo26n_edgetpu.tflite` (YOLO 2026 nano, INT8 quantized, 320×320). To compile custom models:
-
-```bash
-# Requires x86_64 Linux or Docker --platform linux/amd64
-python scripts/compile_model.py --model yolo26s --size 320
-```
+> **Important Deployment Notice**: The updated `deploy.sh` script will natively halt execution and prompt you securely for your OS `sudo` password to securely register the USB drivers (`libedgetpu`) system-wide. If you refuse the prompt, it gracefully outputs the exact terminal instructions for you to configure it manually.
 
 ## Performance
 
 | Input Size | Inference | On-chip | Notes |
 |-----------|-----------|---------|-------|
-| 320×320 | ~4ms | 100% | Fully on TPU, best for real-time |
-| 640×640 | ~20ms | Partial | Some layers on CPU (model segmented) |
+| 320x320 | ~4ms | 100% | Fully on TPU, best for real-time |
+| 640x640 | ~20ms | Partial | Some layers on CPU (model segmented) |
 
 > **Cooling**: The USB Accelerator aluminum case acts as a heatsink. If too hot to touch during continuous inference, it will thermal-throttle. Consider active cooling or `clock_speed: standard`.
 
@@ -172,4 +162,4 @@ Same JSONL as `yolo-detection-2026`:
 ./deploy.sh
 ```
 
-The deployer builds the Docker image locally, probes for TPU devices, and sets the runtime command. No packages pulled from external registries beyond Docker base images and Coral apt repo.
+The deployer builds the local native Python virtual environment inline with global TPU hooks. No Docker containers or abstract container-bindings are used.

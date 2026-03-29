@@ -1,14 +1,11 @@
-# Container dependencies for Coral TPU Detection
-# Installed inside Docker container at build time
+# Dependencies for Coral TPU Detection Skill
 #
-# Note: libedgetpu is installed via apt (Coral package repo),
-# not pip. See Dockerfile for system-level deps.
+# Runtime: ai-edge-litert (LiteRT) — modern successor to tflite-runtime
+# Hardware: libedgetpu must be installed separately as a system library
+#           See SKILL.md → Platform Setup for installation instructions
 
-# PyCoral API for Edge TPU inference
-pycoral~=2.0
-
-# TFLite runtime (Edge TPU delegate)
-tflite-runtime~=2.14
+# LiteRT runtime with Edge TPU delegate support (Python 3.9–3.13)
+ai-edge-litert>=2.1.0
 
 # Image processing
 numpy>=1.24.0,<2.0

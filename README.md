@@ -58,8 +58,10 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | Category | Skill | What It Does | Status |
 |----------|-------|--------------|:------:|
 | **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class detection — auto-accelerated via TensorRT / CoreML / OpenVINO / ONNX | ✅|
-| | [`yolo-detection-2026-coral-tpu`](skills/detection/yolo-detection-2026-coral-tpu/) | Google Coral Edge TPU — ~4ms inference via USB accelerator ([Docker-based](#detection--segmentation-skills)) | 🧪 |
-| | [`yolo-detection-2026-openvino`](skills/detection/yolo-detection-2026-openvino/) | Intel NCS2 USB / Intel GPU / CPU — multi-device via OpenVINO ([Docker-based](#detection--segmentation-skills)) | 🧪 |
+| | [`yolo-detection-2026-coral-tpu`](skills/detection/yolo-detection-2026-coral-tpu/) | Google Coral Edge TPU — ~4ms inference via USB accelerator ([LiteRT](#detection--segmentation-skills)) | ✅ |
+| | [`yolo-detection-2026-openvino`](skills/detection/yolo-detection-2026-openvino/) | Intel NCS2 USB / Intel GPU / CPU — multi-device via OpenVINO ([architecture](#detection--segmentation-skills)) | 🧪 |
+| | `face-detection-recognition` | Face detection & recognition — identify known faces from camera feeds | 📐 |
+| | `license-plate-recognition` | License plate detection & recognition — read plate numbers from camera feeds | 📐 |
 | **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [143-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
 | **Privacy** | [`depth-estimation`](skills/transformation/depth-estimation/) | [Real-time depth-map privacy transform](#-privacy--depth-map-anonymization) — anonymize camera feeds while preserving activity | ✅ |
 | **Segmentation** | [`sam2-segmentation`](skills/segmentation/sam2-segmentation/) | Interactive click-to-segment with Segment Anything 2 — pixel-perfect masks, point/box prompts, video tracking | ✅ |
@@ -74,38 +76,41 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 
 ### Detection & Segmentation Skills
 
-Detection and segmentation skills process visual data from camera feeds — detecting objects, segmenting regions, or analyzing scenes. All skills use the same **JSONL stdin/stdout protocol**: Aegis writes a frame to a shared volume, sends a `frame` event on stdin, and reads `detections` from stdout. This means every detection skill — whether running natively or inside Docker — is interchangeable from Aegis's perspective.
+Detection and segmentation skills process visual data from camera feeds — detecting objects, segmenting regions, or analyzing scenes. All skills use the same **JSONL stdin/stdout protocol**: Aegis writes a frame to a shared volume, sends a `frame` event on stdin, and reads `detections` from stdout. Every detection skill is interchangeable from Aegis's perspective.
 
 ```mermaid
 graph TB
     CAM["📷 Camera Feed"] --> GOV["Frame Governor (5 FPS)"]
     GOV --> |"frame.jpg → shared volume"| PROTO["JSONL stdin/stdout Protocol"]
 
-    PROTO --> NATIVE["🖥️ Native: yolo-detection-2026"]
-    PROTO --> DOCKER["🐳 Docker: Coral TPU / OpenVINO"]
+    PROTO --> YOLO["yolo-detection-2026"]
+    PROTO --> CORAL["yolo-detection-2026-coral-tpu"]
+    PROTO --> OV["yolo-detection-2026-openvino"]
 
-    subgraph Native["Native Skill (runs on host)"]
-        NATIVE --> ENV["env_config.py auto-detect"]
+    subgraph Backends["Skill Backends"]
+        YOLO --> ENV["env_config.py auto-detect"]
         ENV --> TRT["NVIDIA → TensorRT"]
         ENV --> CML["Apple Silicon → CoreML"]
-        ENV --> OV["Intel → OpenVINO IR"]
+        ENV --> OVIR["Intel → OpenVINO IR"]
         ENV --> ONNX["AMD / CPU → ONNX"]
+
+        CORAL --> LITERT["ai-edge-litert + libedgetpu"]
+        LITERT --> TPU["Coral USB → Edge TPU delegate"]
+        LITERT --> CPU1["No TPU → CPU fallback"]
+
+        OV --> OVSDK["OpenVINO SDK"]
+        OVSDK --> NCS2["Intel NCS2 USB"]
+        OVSDK --> IGPU["Intel iGPU / Arc"]
+        OVSDK --> CPU2["CPU fallback"]
     end
 
-    subgraph Container["Docker Container"]
-        DOCKER --> CORAL["Coral TPU → pycoral"]
-        DOCKER --> OVIR["OpenVINO → Ultralytics OV"]
-        DOCKER --> CPU["CPU fallback"]
-        CORAL -.-> USB["USB/IP passthrough"]
-        OVIR -.-> DRI["/dev/dri · /dev/bus/usb"]
-    end
-
-    NATIVE --> |"stdout: detections"| AEGIS["Aegis IPC → Live Overlay + Alerts"]
-    DOCKER --> |"stdout: detections"| AEGIS
+    YOLO --> |"stdout: detections"| AEGIS["Aegis IPC → Live Overlay + Alerts"]
+    CORAL --> |"stdout: detections"| AEGIS
+    OV --> |"stdout: detections"| AEGIS
 ```
 
-- **Native skills** run directly on the host — [`env_config.py`](skills/lib/env_config.py) auto-detects the GPU and converts models to the fastest format (TensorRT, CoreML, OpenVINO IR, ONNX)
-- **Docker skills** wrap hardware-specific runtimes in a container — cross-platform USB/device access without native driver installation
+- **Unified protocol** — each skill creates its own Python venv or Docker container, but Aegis sees the same JSONL interface regardless of backend
+- **Coral TPU** uses [ai-edge-litert](https://pypi.org/project/ai-edge-litert/) (LiteRT) with the `libedgetpu` delegate — supports Python 3.9–3.13 on Linux, macOS, and Windows
 - **Same output** — Aegis sees identical JSONL from all skills, so detection overlays, alerts, and forensic analysis work with any backend
 
 #### LLM-Assisted Skill Installation
@@ -114,7 +119,7 @@ Skills are installed by an **autonomous LLM deployment agent** — not by brittl
 
 1. **Probe** — reads `SKILL.md`, `requirements.txt`, and `package.json` to understand what the skill needs
 2. **Detect hardware** — checks for NVIDIA (CUDA), AMD (ROCm), Apple Silicon (MPS), Intel (OpenVINO), or CPU-only
-3. **Install** — runs the right commands (`pip install`, `npm install`, `docker build`) with the correct backend-specific dependencies
+3. **Install** — runs the right commands (`pip install`, `npm install`, system packages) with the correct backend-specific dependencies
 4. **Verify** — runs a smoke test to confirm the skill loads before marking it complete
 5. **Determine launch command** — figures out the exact `run_command` to start the skill and saves it to the registry
 
