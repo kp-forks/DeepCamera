@@ -3,9 +3,9 @@ name: yolo-detection-2026-coral-tpu
 description: "Google Coral Edge TPU — real-time object detection natively via local Python environment"
 version: 1.0.0
 icon: assets/icon.png
-entry: scripts/monitor.js
+entry: scripts/detect.py
 deploy: deploy.sh
-runtime: node
+runtime: python
 
 requirements:
   platforms: ["linux", "macos", "windows"]
