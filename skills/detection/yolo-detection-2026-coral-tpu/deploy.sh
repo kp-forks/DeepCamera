@@ -1,181 +1,47 @@
 #!/usr/bin/env bash
-# deploy.sh — Native local bootstrapper for Coral TPU Detection Skill
+# deploy.sh — Platform dispatcher for Coral TPU Detection Skill
 #
-# Builds a local Python virtual environment and installs the Google Coral Edge TPU
-# natively on the host OS. Safely prompts for sudo inline to execute driver hooks.
+# This script is the entry point defined in SKILL.md. It detects the OS and
+# delegates to the appropriate platform-specific installer:
 #
-# Exit codes:
+#   deploy-macos.sh   — macOS arm64 (Apple Silicon) and x86_64
+#   deploy-linux.sh   — Linux (Debian/Ubuntu via apt, others via pyenv)
+#   deploy.bat        — Windows (invoked separately by Aegis on Windows)
+#
+# DO NOT add platform-specific logic here. Keep this file as a dispatcher only.
+#
+# Exit codes mirror the sub-scripts:
 #   0 = success
-#   1 = fatal error (Python/pip not found or sudo denied)
-#   2 = partial success (no TPU detected, will use CPU fallback)
+#   1 = fatal error
+#   2 = partial success (no TPU detected, CPU fallback)
 
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG_PREFIX="[coral-tpu-deploy]"
 
-log()  { echo "$LOG_PREFIX $*" >&2; }
+log()  { echo "[coral-tpu-deploy] $*" >&2; }
 emit() { echo "$1"; }
-
-# ─── Inline Sudo Wrapper ────────────────────────────────────────────────────
-ask_sudo() {
-    local cmd="$1"
-    local desc="$2"
-    local manual="$3"
-    
-    emit "{\"event\": \"progress\", \"stage\": \"platform\", \"message\": \"Sudo required: $desc\"}"
-    log "Attempting to run: $desc"
-    
-    # Fast path: If passwordless sudo works, execute immediately.
-    if sudo -n true 2>/dev/null; then
-        eval "sudo bash -c \"$cmd\""
-        return $?
-    fi
-
-    if eval "sudo bash -c \"$cmd\""; then
-        return 0
-    else
-        echo ""
-        echo -e "\033[1;31m[ERROR]\033[0m Sudo command failed or user aborted the prompt."
-        echo "Please execute the following instructions manually in a terminal:"
-        echo ""
-        echo -e "\033[1;36m$manual\033[0m"
-        echo ""
-        echo "Once completed, re-run this deployment."
-        emit '{"event": "error", "stage": "platform", "message": "Manual OS setup required (sudo failed)"}'
-        exit 1
-    fi
-}
 
 PLATFORM="$(uname -s)"
 ARCH="$(uname -m)"
-log "Platform: $PLATFORM ($ARCH)"
+log "Detected platform: $PLATFORM ($ARCH)"
 
-# ─── Step 1: Install Native OS TPU Drivers ──────────────────────────────────
-if [ "$PLATFORM" = "Linux" ]; then
-    log "Linux: ensuring Coral Edge TPU system packages..."
-    
-    MANUAL_LINUX="curl -sL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/coral-edgetpu-archive-keyring.gpg
-echo \"deb [signed-by=/usr/share/keyrings/coral-edgetpu-archive-keyring.gpg] https://packages.cloud.google.com/apt coral-edgetpu-stable main\" | sudo tee /etc/apt/sources.list.d/coral-edgetpu.list
-sudo apt-get update
-sudo apt-get install -y libedgetpu1-max libusb-1.0-0 python3-pycoral"
+# ─── Shared: TPU probe + completion (called by sub-scripts after venv is built)
+# Sub-scripts source this file's final stage, or we let them handle it inline.
+# The dispatcher just delegates and passes exit codes through.
 
-    ask_sudo "apt-get update && apt-get install -y --no-install-recommends curl gnupg && \
-              curl -sL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/coral-edgetpu-archive-keyring.gpg && \
-              echo 'deb [signed-by=/usr/share/keyrings/coral-edgetpu-archive-keyring.gpg] https://packages.cloud.google.com/apt coral-edgetpu-stable main' | tee /etc/apt/sources.list.d/coral-edgetpu.list && \
-              apt-get update && \
-              apt-get install -y libedgetpu1-max libusb-1.0-0 python3 python3-pip python3-venv python3-pycoral" \
-             "Install native Google Coral APT repository and TPU runtime" \
-             "$MANUAL_LINUX"
-
-elif [ "$PLATFORM" = "Darwin" ]; then
-    log "macOS: Installing libusb and Native Edge TPU Driver..."
-
-    # Ensure libusb exists via brew without sudo
-    if command -v brew &>/dev/null; then
-        brew install libusb || true
-    fi
-
-    if [ "$ARCH" = "arm64" ]; then
-        MANUAL_MAC="curl -sSLO https://github.com/feranick/libedgetpu/releases/download/16.0TF2.19.1-1/libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
-unzip -q -o libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
-sudo mkdir -p /usr/local/lib /opt/homebrew/lib
-sudo cp libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon/direct/darwin_arm64/libedgetpu.1.dylib /usr/local/lib/
-sudo cp libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon/direct/darwin_arm64/libedgetpu.1.dylib /opt/homebrew/lib/
-rm -rf libedgetpu*"
-
-        log "Downloading Apple Silicon arm64 driver payload..."
-        TMP_DIR=$(mktemp -d)
-        cd "$TMP_DIR"
-        curl -sSLO https://github.com/feranick/libedgetpu/releases/download/16.0TF2.19.1-1/libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
-        unzip -q -o libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
-        ask_sudo "mkdir -p /usr/local/lib /opt/homebrew/lib && cp libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon/direct/darwin_arm64/libedgetpu.1.dylib /usr/local/lib/ && cp libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon/direct/darwin_arm64/libedgetpu.1.dylib /opt/homebrew/lib/" "Install libedgetpu.1.dylib to /usr/local/lib and /opt/homebrew/lib" "$MANUAL_MAC"
-        cd "$SKILL_DIR"
-        rm -rf "$TMP_DIR"
-    else
-        MANUAL_MAC="curl -LO https://github.com/google-coral/libedgetpu/releases/download/release-grouper/edgetpu_runtime_20221024.zip
-unzip edgetpu_runtime_20221024.zip
-cd edgetpu_runtime
-sudo bash install.sh"
-
-        log "Downloading Google official x86_64 installer..."
-        TMP_DIR=$(mktemp -d)
-        cd "$TMP_DIR"
-        curl -sSLO https://github.com/google-coral/libedgetpu/releases/download/release-grouper/edgetpu_runtime_20221024.zip
-        unzip -q -o edgetpu_runtime_20221024.zip
-        cd edgetpu_runtime
-        ask_sudo "bash install.sh </dev/null" "Execute official Google Coral install.sh" "$MANUAL_MAC"
-        cd "$SKILL_DIR"
-        rm -rf "$TMP_DIR"
-    fi
-fi
-
-# ─── Step 2: Ensure Python 3 ────────────────────────────────────────────────
-if ! command -v python3 &>/dev/null; then
-    log "ERROR: Python 3 not found."
-    emit '{"event": "error", "stage": "python", "message": "Python 3 not found"}'
-    exit 1
-fi
-
-PYTHON_CMD="python3"
-log "Using Python: $($PYTHON_CMD --version)"
-
-# ─── Step 3: Create Virtual Environment ─────────────────────────────────────
-VENV_DIR="$SKILL_DIR/venv"
-log "Setting up virtual environment with system packages in $VENV_DIR..."
-emit '{"event": "progress", "stage": "build", "message": "Creating Python virtual environment..."}'
-
-# Use --system-site-packages so Linux can inherit python3-pycoral if installed globally
-"$PYTHON_CMD" -m venv --system-site-packages "$VENV_DIR"
-
-if [ ! -f "$VENV_DIR/bin/python" ]; then
-    log "ERROR: Failed to create virtual environment."
-    emit '{"event": "error", "stage": "build", "message": "Failed to create venv"}'
-    exit 1
-fi
-
-# ─── Step 4: Install PyCoral & Dependencies ─────────────────────────────────
-log "Installing Python dependencies (including pycoral)..."
-emit '{"event": "progress", "stage": "build", "message": "Fetching pycoral specific wheels..."}'
-
-"$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null 2>&1 || true
-
-# Explicitly fetch pycoral using the extra URL provided in the instructions, 
-# but only on macOS/Windows. On Linux, apt-get python3-pycoral provides it globally to our --system-site-packages venv.
-if [ "$PLATFORM" != "Linux" ]; then
-    if ! "$VENV_DIR/bin/python" -m pip install --extra-index-url https://google-coral.github.io/py-repo/ pycoral~=2.0; then
-        log "WARNING: pip install pycoral failed. Will attempt to install standard requirements anyway."
-    fi
-fi
-
-if ! "$VENV_DIR/bin/python" -m pip install -r "$SKILL_DIR/requirements.txt"; then
-    log "ERROR: Failed to install Python dependencies."
-    emit '{"event": "error", "stage": "build", "message": "pip install failed"}'
-    exit 1
-fi
-
-log "Dependencies installed successfully."
-
-# ─── Step 5: Probe for Edge TPU devices ──────────────────────────────────────
-log "Probing for Edge TPU devices natively..."
-emit '{"event": "progress", "stage": "probe", "message": "Checking for physical Edge TPU..."}'
-
-TPU_FOUND=false
-PROBE_OUTPUT=$("$VENV_DIR/bin/python" "$SKILL_DIR/scripts/tpu_probe.py" 2>/dev/null) || true
-
-if echo "$PROBE_OUTPUT" | grep -q '"available": true'; then
-    TPU_COUNT=$(echo "$PROBE_OUTPUT" | "$VENV_DIR/bin/python" -c "import sys,json; print(json.load(sys.stdin)['count'])" 2>/dev/null || echo "?")
-    TPU_FOUND=true
-    emit "{\"event\": \"progress\", \"stage\": \"probe\", \"message\": \"Found $TPU_COUNT Edge TPU device(s) natively\"}"
-else
-    emit '{"event": "progress", "stage": "probe", "message": "No Edge TPU detected — CPU fallback available"}'
-fi
-
-# ─── Step 6: Complete ────────────────────────────────────────────────────────
-if [ "$TPU_FOUND" = true ]; then
-    emit "{\"event\": \"complete\", \"status\": \"success\", \"tpu_found\": true, \"message\": \"Native Coral TPU skill installed — Edge TPU ready\"}"
-    exit 0
-else
-    emit "{\"event\": \"complete\", \"status\": \"partial\", \"tpu_found\": false, \"message\": \"Native Coral TPU skill installed — no TPU detected (CPU fallback)\"}"
-    exit 2
-fi
+case "$PLATFORM" in
+    Darwin)
+        chmod +x "$SKILL_DIR/deploy-macos.sh"
+        exec "$SKILL_DIR/deploy-macos.sh" "$@"
+        ;;
+    Linux)
+        chmod +x "$SKILL_DIR/deploy-linux.sh"
+        exec "$SKILL_DIR/deploy-linux.sh" "$@"
+        ;;
+    *)
+        emit "{\"event\": \"error\", \"stage\": \"platform\", \"message\": \"Unsupported platform: $PLATFORM — use deploy.bat on Windows\"}"
+        log "ERROR: Unsupported platform '$PLATFORM'. On Windows, Aegis calls deploy.bat directly."
+        exit 1
+        ;;
+esac
