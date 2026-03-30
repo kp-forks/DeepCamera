@@ -17,12 +17,17 @@ import sys
 
 def _edgetpu_lib_name():
     """Return the platform-specific libedgetpu shared library name."""
+    import platform
+    from pathlib import Path
     system = platform.system()
     if system == "Linux":
         return "libedgetpu.so.1"
     elif system == "Darwin":
         return "libedgetpu.1.dylib"
     elif system == "Windows":
+        local_dll = Path(__file__).parent.parent / "lib" / "edgetpu.dll"
+        if local_dll.exists():
+            return str(local_dll.resolve())
         return "edgetpu.dll"
     return "libedgetpu.so.1"
 
