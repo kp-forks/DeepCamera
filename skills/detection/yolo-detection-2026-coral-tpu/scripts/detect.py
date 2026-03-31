@@ -23,9 +23,12 @@ from typing import Optional, Tuple, List, Dict, Any
 # Python 3.8+ no longer searches PATH for DLLs loaded by native C extensions.
 # We must register our local lib/ directory so that when ai_edge_litert loads
 # edgetpu.dll, Windows can also find libusb-1.0.dll in the same folder.
+# Native delegates loaded via C++ LoadLibrary also bypass Python's DLL directory,
+# so we must append it to the system PATH environment variable as well.
 _LIB_DIR = Path(__file__).parent.parent / "lib"
 if sys.platform == "win32" and _LIB_DIR.exists():
     os.add_dll_directory(str(_LIB_DIR))
+    os.environ["PATH"] = str(_LIB_DIR) + os.pathsep + os.environ.get("PATH", "")
 
 import numpy as np
 from PIL import Image

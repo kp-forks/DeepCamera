@@ -101,25 +101,13 @@ echo {"event": "progress", "stage": "platform", "message": "Edge TPU DLLs ready.
 
 REM ── Install UsbDk Driver (bundled MSI, required for Coral TPU on Windows) 
 if exist "%SKILL_DIR%driver\UsbDk_1.0.22_x64.msi" (
-    set "TMP_DIR=%TEMP%\coral_drv_%RANDOM%"
-    mkdir "%TMP_DIR%"
-    echo @echo off > "%TMP_DIR%\install_coral_driver.bat"
-    echo start /wait "" msiexec /i "%SKILL_DIR%driver\UsbDk_1.0.22_x64.msi" /qn /norestart >> "%TMP_DIR%\install_coral_driver.bat"
-
-    echo %LOG_PREFIX% Prompting for Administrator rights to install Coral UsbDk driver... 1>&2
-    echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will appear. Approve it to install the Coral USB driver (UsbDk)."}
-
-    powershell -NoProfile -Command "Start-Process cmd.exe -ArgumentList '/c \"%TMP_DIR%\install_coral_driver.bat\"' -Verb RunAs -Wait" 2>nul
-
-    if %errorlevel% neq 0 (
-        echo %LOG_PREFIX% UAC declined - hardware TPU driver not installed. CPU fallback available. 1>&2
-        echo {"event": "progress", "stage": "platform", "message": "UAC skipped. CPU fallback available. Reinstall and approve UAC to enable hardware TPU."}
-    ) else (
-        echo %LOG_PREFIX% Coral UsbDk driver installed. 1>&2
-        echo {"event": "progress", "stage": "platform", "message": "Coral UsbDk driver installed. Unplug and replug your Coral USB Accelerator to activate."}
-    )
-
-    rmdir /S /Q "%TMP_DIR%" 2>nul
+    echo %LOG_PREFIX% Emitting Pause Modal for explicit driver installation... 1>&2
+    echo {"event": "progress", "stage": "platform", "message": "Waiting for User to install UsbDk Driver..."}
+    echo [AEGIS_PAUSE_MODAL] file=driver\UsbDk_1.0.22_x64.msi; msg=Google Coral TPU Requires the UsbDk system driver to run over USB. Click 'Launch Installer' to proceed.
+    set /p "DUMMY_VAR=Press ENTER to continue deploy after installing UsbDk..."
+    
+    echo %LOG_PREFIX% Continued deployment. Assuming UsbDk driver was installed. 1>&2
+    echo {"event": "progress", "stage": "platform", "message": "Driver installation complete. Unplug and replug your Coral USB Accelerator to activate."}
 ) else (
     echo %LOG_PREFIX% WARNING: UsbDk MSI not found in driver\. Skipping driver install. 1>&2
 )
