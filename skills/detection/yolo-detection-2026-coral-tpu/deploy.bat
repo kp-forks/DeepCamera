@@ -99,27 +99,30 @@ if not exist "%SKILL_DIR%lib\edgetpu.dll" (
 echo %LOG_PREFIX% edgetpu.dll ready in lib\. 1>&2
 echo {"event": "progress", "stage": "platform", "message": "Edge TPU DLLs ready."}
 
-REM ── Install WinUSB driver via pnputil (bundled INF, no interactive prompts) ──
-set "TMP_DIR=%TEMP%\coral_drv_%RANDOM%"
-mkdir "%TMP_DIR%"
-echo @echo off > "%TMP_DIR%\install_coral_driver.bat"
-echo pnputil /add-driver "%SKILL_DIR%driver\coral_winusb.inf" /install >> "%TMP_DIR%\install_coral_driver.bat"
-echo pnputil /scan-devices >> "%TMP_DIR%\install_coral_driver.bat"
+REM ── Install UsbDk Driver (bundled MSI, required for Coral TPU on Windows) 
+if exist "%SKILL_DIR%driver\UsbDk_1.0.22_x64.msi" (
+    set "TMP_DIR=%TEMP%\coral_drv_%RANDOM%"
+    mkdir "%TMP_DIR%"
+    echo @echo off > "%TMP_DIR%\install_coral_driver.bat"
+    echo msiexec /i "%SKILL_DIR%driver\UsbDk_1.0.22_x64.msi" /qn /norestart >> "%TMP_DIR%\install_coral_driver.bat"
 
-echo %LOG_PREFIX% Prompting for Administrator rights to install Coral WinUSB driver... 1>&2
-echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will appear. Approve it to install the Coral USB hardware driver."}
+    echo %LOG_PREFIX% Prompting for Administrator rights to install Coral UsbDk driver... 1>&2
+    echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will appear. Approve it to install the Coral USB driver (UsbDk)."}
 
-powershell -NoProfile -Command "Start-Process cmd.exe -ArgumentList '/c \"%TMP_DIR%\install_coral_driver.bat\"' -Verb RunAs -Wait" 2>nul
+    powershell -NoProfile -Command "Start-Process cmd.exe -ArgumentList '/c \"%TMP_DIR%\install_coral_driver.bat\"' -Verb RunAs -Wait" 2>nul
 
-if %errorlevel% neq 0 (
-    echo %LOG_PREFIX% UAC declined - hardware TPU driver not installed. CPU fallback available. 1>&2
-    echo {"event": "progress", "stage": "platform", "message": "UAC skipped. CPU fallback available. Reinstall and approve UAC to enable hardware TPU."}
+    if %errorlevel% neq 0 (
+        echo %LOG_PREFIX% UAC declined - hardware TPU driver not installed. CPU fallback available. 1>&2
+        echo {"event": "progress", "stage": "platform", "message": "UAC skipped. CPU fallback available. Reinstall and approve UAC to enable hardware TPU."}
+    ) else (
+        echo %LOG_PREFIX% Coral UsbDk driver installed. 1>&2
+        echo {"event": "progress", "stage": "platform", "message": "Coral UsbDk driver installed. Unplug and replug your Coral USB Accelerator to activate."}
+    )
+
+    rmdir /S /Q "%TMP_DIR%" 2>nul
 ) else (
-    echo %LOG_PREFIX% Coral WinUSB driver installed. 1>&2
-    echo {"event": "progress", "stage": "platform", "message": "Coral WinUSB driver installed. Unplug and replug your Coral USB Accelerator to activate."}
+    echo %LOG_PREFIX% WARNING: UsbDk MSI not found in driver\. Skipping driver install. 1>&2
 )
-
-rmdir /S /Q "%TMP_DIR%" 2>nul
 
 
 
