@@ -1,0 +1,56 @@
+;
+; Coral USB Accelerator WinUSB Driver
+;
+; Maps Google Coral Edge TPU USB Accelerator hardware IDs to Microsoft's
+; in-box WinUSB.sys driver, enabling libusb-1.0.dll (and edgetpu.dll) to
+; communicate with the device. WinUSB.sys is already signed by Microsoft —
+; this INF does not require additional driver signing.
+;
+; Hardware IDs:
+;   USB\VID_1A6E&PID_089A  — Global Unichip Corp (bootloader / DFU mode)
+;   USB\VID_18D1&PID_9302  — Google (Edge TPU runtime mode)
+;
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider    = %ManufacturerName%
+DriverVer   = 10/24/2022,1.0.0.0
+CatalogFile = CoralUSB.cat
+
+[ClassInstall32]
+AddReg = ClassInstall_AddReg
+
+[ClassInstall_AddReg]
+HKR,,,,%ClassName%
+HKR,,NoInstallClass,,1
+HKR,,IconPath,0x00010000,"%%SystemRoot%%\system32\setupapi.dll,-20"
+HKR,,LowerLogoVersion,,5.2
+
+[Manufacturer]
+%ManufacturerName% = Devices, NTamd64
+
+[Devices.NTamd64]
+%DeviceName_Bootloader% = USB_Install, USB\VID_1A6E&PID_089A
+%DeviceName_App%        = USB_Install, USB\VID_18D1&PID_9302
+
+[USB_Install]
+Include = WINUSB.INF
+Needs   = WINUSB.NT
+
+[USB_Install.Services]
+Include = WINUSB.INF
+Needs   = WINUSB.NT.Services
+
+[USB_Install.HW]
+AddReg = USB_HW_AddReg
+
+[USB_HW_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{F72FE0D4-CBCB-407d-8814-9ED673D0DD6B}"
+
+[Strings]
+ManufacturerName      = "Google"
+ClassName             = "Universal Serial Bus devices"
+DeviceName_Bootloader = "Google Coral USB Accelerator (Bootloader)"
+DeviceName_App        = "Google Coral USB Accelerator"
