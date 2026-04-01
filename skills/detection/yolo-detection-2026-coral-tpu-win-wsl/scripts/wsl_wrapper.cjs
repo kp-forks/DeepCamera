@@ -1,10 +1,17 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
+// Ensure usbipd is on PATH (Aegis might have booted before the MSI updated System PATH)
+const env = { ...process.env };
+if (process.platform === 'win32' && (!env.PATH || !env.PATH.toLowerCase().includes('usbipd-win'))) {
+    env.PATH = `${env.PATH || ''};C:\\Program Files\\usbipd-win\\`;
+}
+
 // 1. Spawan usbipd auto-attach process in the background
 // This guarantees that the Google Coral USB Accelerator is actively passed
 // to the WSL linux kernel as soon as this inference script starts!
 const attachProcess = spawn('usbipd', ['attach', '--wsl', '--auto-attach', '--hardware-id', '18d1:9302'], {
+    env,
     stdio: 'ignore', // We do not want usbipd logs corrupting the JSONL stdout stream!
     detached: true
 });
