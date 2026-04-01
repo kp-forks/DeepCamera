@@ -25,6 +25,23 @@ if sys.platform == "win32" and _LIB_DIR.exists():
     os.add_dll_directory(str(_LIB_DIR))
     os.environ["PATH"] = str(_LIB_DIR) + os.pathsep + os.environ.get("PATH", "")
 
+
+def _win_to_wsl_path(path: str) -> str:
+    """Translate a Windows-style path (C:\\...) to a WSL /mnt/ path when running in WSL."""
+    import re
+    if not path:
+        return path
+    # Already a Unix path — leave it alone
+    if path.startswith('/'):
+        return path
+    # Windows drive letter: C:\Users\... → /mnt/c/Users/...
+    match = re.match(r'^([A-Za-z]):[/\\](.*)', path)
+    if match:
+        drive = match.group(1).lower()
+        rest = match.group(2).replace('\\', '/')
+        return f'/mnt/{drive}/{rest}'
+    return path
+
 import numpy as np
 from PIL import Image
 
@@ -56,14 +73,17 @@ def _edgetpu_lib_name():
     """Return the platform-specific libedgetpu shared library name."""
     import platform
     system = platform.system()
-    
-    # Priority order for checking local delegate libs
-    candidates = [
-        Path(__file__).parent.parent / "libedgetpu.so.1",  # WSL root
-        Path(__file__).parent.parent / "lib" / "libedgetpu.so.1", # OSX/Linux layout
-    ]
-    
+
     if system == "Linux":
+        # Priority 1: system-installed library (copied here by deploy.bat — works on NTFS-free path)
+        system_lib = Path("/usr/local/lib/libedgetpu.so.1")
+        if system_lib.exists():
+            return str(system_lib)
+        # Priority 2: bundled alongside the skill (may fail if on /mnt/c NTFS mount)
+        candidates = [
+            Path(__file__).parent.parent / "libedgetpu.so.1",
+            Path(__file__).parent.parent / "lib" / "libedgetpu.so.1",
+        ]
         for cand in candidates:
             if cand.exists():
                 return str(cand.resolve())
@@ -411,6 +431,8 @@ class CoralDetector:
         t0 = time.perf_counter()
 
         try:
+            # Translate Windows paths to WSL /mnt/ paths when running inside WSL
+            frame_path = _win_to_wsl_path(frame_path)
             img = Image.open(frame_path).convert("RGB")
         except Exception as e:
             log(f"ERROR reading frame: {e}")

@@ -76,6 +76,8 @@ echo.
 echo [4/4] Installing Python requirements and Coral TPU drivers...
 wsl -e bash -c "cd '%DIR_PATH%' && source wsl_venv/bin/activate && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.9 && python3.9 -m pip install -r requirements.txt"
 wsl -u root -e bash -c "cd '%DIR_PATH%' && wget -qO libedgetpu.deb https://packages.cloud.google.com/apt/pool/coral-edgetpu-stable/libedgetpu1-max_16.0_amd64_0ac21f1924dd4b125d5cfc5f6d0e4a5e.deb && dpkg -x libedgetpu.deb ext && cp ext/usr/lib/x86_64-linux-gnu/libedgetpu.so.1.0 libedgetpu.so.1 && rm -rf ext libedgetpu.deb"
+:: Install libedgetpu into the real WSL Linux filesystem so dlopen() works (NTFS /mnt/c/ lacks exec bit)
+wsl -u root -e bash -c "cp '%DIR_PATH%/libedgetpu.so.1' /usr/local/lib/libedgetpu.so.1 && ldconfig"
 
 echo.
 echo.
