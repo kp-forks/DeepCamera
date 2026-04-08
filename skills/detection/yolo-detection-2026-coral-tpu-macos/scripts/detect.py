@@ -445,9 +445,9 @@ class CoralDetector:
         t_post = time.perf_counter()
 
         timings = {
-            "read": round((t_read - t0) * 1000.0, 2),
+            "file_read": round((t_read - t0) * 1000.0, 2),
             "preprocess": round((t_pre - t_read) * 1000.0, 2),
-            "infer": round((t_infer - t_pre) * 1000.0, 2),
+            "inference": round((t_infer - t_pre) * 1000.0, 2),
             "postprocess": round((t_post - t_infer) * 1000.0, 2),
             "total": round((t_post - t0) * 1000.0, 2),
         }
