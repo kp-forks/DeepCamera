@@ -101,54 +101,6 @@
       ]
     },
     {
-      "id": "yolo-detection-2026-coral-tpu",
-      "name": "YOLO 2026 Coral TPU",
-      "description": "Google Coral Edge TPU — real-time object detection with LiteRT (INT8, ~4ms inference at 320×320).",
-      "version": "2.0.0",
-      "category": "detection",
-      "path": "skills/detection/yolo-detection-2026-coral-tpu",
-      "tags": [
-        "detection",
-        "yolo",
-        "coral",
-        "edge-tpu",
-        "litert",
-        "real-time",
-        "coco"
-      ],
-      "platforms": [
-        "linux-x64",
-        "linux-arm64",
-        "darwin-arm64",
-        "darwin-x64",
-        "win-x64"
-      ],
-      "requirements": {
-        "python": ">=3.9",
-        "system": "libedgetpu",
-        "hardware": "Google Coral USB Accelerator"
-      },
-      "capabilities": [
-        "live_detection",
-        "bbox_overlay"
-      ],
-      "ui_unlocks": [
-        "detection_overlay",
-        "detection_results"
-      ],
-      "fps_presets": [
-        0.2,
-        0.5,
-        1,
-        3,
-        5,
-        15
-      ],
-      "model_sizes": [
-        "nano"
-      ]
-    },
-    {
       "id": "camera-claw",
       "name": "Camera Claw",
       "description": "Security camera for your AI agent — sandbox, record, and monitor OpenClaw activity.",
@@ -157,16 +109,46 @@
       "url": "https://github.com/SharpAI/CameraClaw",
       "repo_url": "https://github.com/SharpAI/CameraClaw",
       "code_structure": [
-        { "path": "SKILL.md", "desc": "Aegis skill manifest (11 params)" },
-        { "path": "package.json", "desc": "Node.js dependencies" },
-        { "path": "config.yaml", "desc": "Default params" },
-        { "path": "deploy.sh", "desc": "Node.js + Docker bootstrapper" },
-        { "path": "deploy.bat", "desc": "Windows bootstrapper" },
-        { "path": "scripts/monitor.js", "desc": "Main entry — Docker orchestrator + JSONL protocol" },
-        { "path": "scripts/health-check.js", "desc": "Container health checker" },
-        { "path": "docs/aegis_openclaw_note.md", "desc": "Aegis integration requirements" }
+        {
+          "path": "SKILL.md",
+          "desc": "Aegis skill manifest (11 params)"
+        },
+        {
+          "path": "package.json",
+          "desc": "Node.js dependencies"
+        },
+        {
+          "path": "config.yaml",
+          "desc": "Default params"
+        },
+        {
+          "path": "deploy.sh",
+          "desc": "Node.js + Docker bootstrapper"
+        },
+        {
+          "path": "deploy.bat",
+          "desc": "Windows bootstrapper"
+        },
+        {
+          "path": "scripts/monitor.js",
+          "desc": "Main entry — Docker orchestrator + JSONL protocol"
+        },
+        {
+          "path": "scripts/health-check.js",
+          "desc": "Container health checker"
+        },
+        {
+          "path": "docs/aegis_openclaw_note.md",
+          "desc": "Aegis integration requirements"
+        }
       ],
-      "tags": ["security", "sandbox", "monitoring", "openclaw", "ai-agent"],
+      "tags": [
+        "security",
+        "sandbox",
+        "monitoring",
+        "openclaw",
+        "ai-agent"
+      ],
       "platforms": [
         "linux-x64",
         "linux-arm64",
@@ -309,6 +291,40 @@
       ],
       "ui_unlocks": [
         "annotation_studio"
+      ]
+    },
+    {
+      "id": "yolo-detection-2026-coral-tpu-macos",
+      "name": "YOLO 2026 Coral TPU (macOS)",
+      "description": "Google Coral Edge TPU natively via ai-edge-litert on macOS",
+      "category": "detection",
+      "path": "skills/detection/yolo-detection-2026-coral-tpu-macos",
+      "tags": [
+        "detection",
+        "yolo",
+        "coral",
+        "edge-tpu"
+      ],
+      "platforms": [
+        "darwin-arm64",
+        "darwin-x64"
+      ]
+    },
+    {
+      "id": "yolo-detection-2026-coral-tpu-win-wsl",
+      "name": "YOLO 2026 Coral TPU (Windows/WSL)",
+      "description": "Google Coral Edge TPU natively mapped to WSL2",
+      "category": "detection",
+      "path": "skills/detection/yolo-detection-2026-coral-tpu-win-wsl",
+      "tags": [
+        "detection",
+        "yolo",
+        "coral",
+        "edge-tpu",
+        "wsl"
+      ],
+      "platforms": [
+        "win-x64"
       ]
     }
   ]
