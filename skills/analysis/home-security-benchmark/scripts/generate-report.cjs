@@ -109,6 +109,7 @@ function buildHTML(allResults, fixtureImages, { liveMode = false, liveStatus = n
         tokens: r.tokens || r.data?.tokenTotals?.total,
         perfSummary: r.perfSummary || r.data?.perfSummary || null,
         system: r.data?.system || {},
+        serverParams: r.data?.serverParams || {},
         tokenTotals: r.data?.tokenTotals || {},
         suites: (r.data?.suites || []).map(s => ({
             name: s.name,
@@ -491,6 +492,15 @@ function renderPerformance() {
 
     let html = '<div class="header"><div class="page-title">⚡ Performance</div>';
     html += '<div class="page-subtitle">' + esc(run.model || '?') + ' — ' + shortDate(run.timestamp) + '</div></div>';
+
+    if (run.serverParams && typeof run.serverParams === 'object' && Object.keys(run.serverParams).length > 0) {
+        let paramStr = '';
+        for (const k in run.serverParams) {
+            if (paramStr) paramStr += ' | ';
+            paramStr += '<b>' + esc(k) + '</b>: ' + esc(String(run.serverParams[k]));
+        }
+        html += '<div style="font-size:0.75rem; color:var(--text-dim); margin-left: 2rem; margin-top: 0.5rem; padding-bottom: 0.5rem;">[Server Params]  ' + paramStr + '</div>';
+    }
 
     // Hero cards
     html += '<div class="hero-grid">';

@@ -230,10 +230,14 @@ function suite(name, fn) {
     suites.push({ name, fn, tests: [] });
 }
 
+let targetServerParams = {};
+try { targetServerParams = JSON.parse(process.env.AEGIS_SERVER_PARAMS || '{}'); } catch { }
+
 const results = {
     timestamp: new Date().toISOString(),
     gateway: GATEWAY_URL,
     vlm: VLM_URL || null,
+    serverParams: targetServerParams,
     system: {},
     model: {},
     suites: [],
@@ -333,6 +337,9 @@ async function llmCall(messages, opts = {}) {
         ...(model && { model }),
         ...(temperature !== undefined && { temperature }),
         ...(opts.expectJSON && { top_p: 0.8 }),
+        // For JSON-expected tests on local servers, enable server-side JSON mode
+        // which activates prefix buffering to strip hallucinated artifacts
+        ...(opts.expectJSON && !isCloudApi && { response_format: { type: 'json_object' } }),
         ...(opts.tools && { tools: opts.tools }),
         // Model-family-specific params (e.g. reasoning_effort:'none' for Mistral).
         // These are merged last so they take precedence over defaults.
@@ -2500,7 +2507,7 @@ async function scrapeServerMetrics() {
         try {
             const base = url.replace(/\/v1\/?$/, '');
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 3000);
+            const timeout = setTimeout(() => controller.abort(), 300000); // 5 minutes for colossal zero-copy graphs
             const res = await fetch(`${base}/metrics`, { signal: controller.signal });
             clearTimeout(timeout);
 

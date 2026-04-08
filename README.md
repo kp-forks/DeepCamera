@@ -166,6 +166,7 @@ The shared [`env_config.py`](skills/lib/env_config.py) **auto-detects your GPU**
 | **Intel** (CPU, iGPU, NPU) | OpenVINO IR `.xml` | OpenVINO | **2-3x** |
 | **AMD GPU** (RX, MI) | ONNX Runtime | ROCm | **1.5-2x** |
 | **Any CPU** | ONNX Runtime | CPU | **~1.5x** |
+| **[Google Coral USB Accelerator](skills/detection/yolo-detection-2026-coral-tpu/)** | Edge TPU `.tflite` | ai-edge-litert + libedgetpu | **~4ms flat** |
 
 ### Aegis Skill Integration
 
