@@ -192,14 +192,24 @@ class CoralDetector:
         self._load_model()
 
     def _find_model_path(self):
-        """Find the compiled Edge TPU model."""
+        """Find the compiled Edge TPU model.
+
+        ultralytics format="edgetpu" produces:
+          <model>_saved_model/<model>_full_integer_quant_edgetpu.tflite
+        Our compile_model.py copies it to models/ so we look there first.
+        """
         model_dir = Path("/app/models")
         script_dir = Path(__file__).parent.parent / "models"
 
         for d in [model_dir, script_dir]:
             if not d.exists():
                 continue
-            for pattern in ["*_edgetpu.tflite", "*.tflite"]:
+            # ultralytics edgetpu naming: *_full_integer_quant_edgetpu.tflite
+            for pattern in [
+                "*_full_integer_quant_edgetpu.tflite",
+                "*_edgetpu.tflite",
+                "*.tflite",
+            ]:
                 matches = list(d.glob(pattern))
                 if matches:
                     return str(matches[0])
@@ -222,6 +232,18 @@ class CoralDetector:
         # Try loading with Edge TPU delegate
         edgetpu_lib = _edgetpu_lib_name()
         try:
+            # Squelch __del__ AttributeError bugs in ai-edge-litert when delegate fails to load
+            if hasattr(litert, 'Delegate'):
+                original_del = getattr(litert.Delegate, '__del__', None)
+                if original_del and not hasattr(litert.Delegate, '_patched_del'):
+                    def safe_del(self):
+                        try:
+                            original_del(self)
+                        except AttributeError:
+                            pass
+                    litert.Delegate.__del__ = safe_del
+                    litert.Delegate._patched_del = True
+
             delegate = litert.load_delegate(edgetpu_lib)
             self.interpreter = litert.Interpreter(
                 model_path=model_path,

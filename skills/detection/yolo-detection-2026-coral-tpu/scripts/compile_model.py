@@ -1,147 +1,158 @@
 #!/usr/bin/env python3
 """
-Coral TPU Model Compiler — converts YOLO models to Edge TPU format.
+Coral TPU Model Compiler — YOLO 2026 → Edge TPU .tflite
 
-Pipeline: YOLO (.pt) → TFLite INT8 → edgetpu_compiler → _edgetpu.tflite
+Uses ultralytics' built-in format="edgetpu" export, which handles the full
+pipeline internally:
+  .pt → ONNX → TFLite INT8 (via onnx2tf) → edgetpu_compiler → _edgetpu.tflite
 
-Requirements:
-  - Ultralytics (pip install ultralytics)
-  - edgetpu_compiler (x86_64 Linux only, or Docker --platform linux/amd64)
-  - Calibration images for INT8 quantization
+Per the Ultralytics docs (https://docs.ultralytics.com/guides/coral-edge-tpu-on-raspberry-pi/):
+  model.export(format="edgetpu")
+
+Output file: <model>_saved_model/<model>_full_integer_quant_edgetpu.tflite
+Copied to:   <output_dir>/<model>_full_integer_quant_edgetpu.tflite
+             <output_dir>/<model>_full_integer_quant.tflite  (CPU fallback)
+
+Requirements (pre-installed in Docker):
+  - ultralytics >= 8.3.0
+  - edgetpu_compiler (x86_64 Linux — Google Coral apt package)
 
 Usage:
-  python scripts/compile_model.py --model yolo26n --size 320 --output models/
-  python scripts/compile_model.py --model yolo26s --size 640 --output models/
+  python compile_model.py --model yolo26n --size 320 --output /compile/output
+  python compile_model.py --model yolo26n --size 640 --output /compile/output
 """
 
 import argparse
+import glob
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 
+def log(msg):
+    print(f"[compile] {msg}", flush=True)
+
+
 def check_edgetpu_compiler():
-    """Check if edgetpu_compiler is available."""
     try:
-        result = subprocess.run(
-            ["edgetpu_compiler", "--version"],
-            capture_output=True, text=True, timeout=10
-        )
-        print(f"[compile] edgetpu_compiler: {result.stdout.strip()}")
+        r = subprocess.run(["edgetpu_compiler", "--version"],
+                           capture_output=True, text=True, timeout=10)
+        log(f"edgetpu_compiler: {r.stdout.strip()}")
         return True
     except (FileNotFoundError, subprocess.TimeoutExpired):
+        log("ERROR: edgetpu_compiler not found.")
         return False
 
 
-def export_tflite_int8(model_name, imgsz):
-    """Export YOLO model to TFLite INT8 via Ultralytics."""
+def export_edgetpu(model_name, imgsz, output_dir):
+    """
+    Export YOLO model using ultralytics format="edgetpu".
+
+    ultralytics handles:
+      1. ONNX export
+      2. onnx2tf → SavedModel
+      3. TFLiteConverter INT8 quantization
+      4. edgetpu_compiler
+
+    The only requirement is that edgetpu_compiler is on PATH.
+    """
     try:
         from ultralytics import YOLO
     except ImportError:
-        print("[compile] ERROR: ultralytics not installed. Run: pip install ultralytics")
+        log("ERROR: ultralytics not installed.")
         sys.exit(1)
 
-    model_file = f"{model_name}.pt"
-    if not os.path.exists(model_file):
-        print(f"[compile] Downloading {model_file}...")
+    log(f"Exporting {model_name}.pt → Edge TPU (imgsz={imgsz})...")
+    log("This will: download model → ONNX → TFLite INT8 → edgetpu_compiler")
+    log("Estimated time: 5-15 minutes on first run (model download + compilation)")
 
-    print(f"[compile] Loading model: {model_file}")
-    model = YOLO(model_file)
-
-    print(f"[compile] Exporting to TFLite INT8 (imgsz={imgsz})...")
-    # Export with full integer quantization for Edge TPU
+    model = YOLO(f"{model_name}.pt")  # auto-downloads from ultralytics hub
     result = model.export(
-        format="tflite",
+        format="edgetpu",
         imgsz=imgsz,
-        int8=True,       # Full INT8 quantization
-        nms=False,        # Edge TPU handles raw output, NMS in post-process
     )
-
-    tflite_path = result
-    if not tflite_path or not os.path.exists(str(tflite_path)):
-        # Ultralytics may save with different naming
-        candidates = list(Path(".").glob(f"**/{model_name}*_int8.tflite"))
-        if not candidates:
-            candidates = list(Path(".").glob(f"**/{model_name}*.tflite"))
-        if candidates:
-            tflite_path = str(candidates[0])
-        else:
-            print("[compile] ERROR: TFLite export failed — no output file found")
-            sys.exit(1)
-
-    print(f"[compile] TFLite INT8 model: {tflite_path}")
-    return str(tflite_path)
+    log(f"Export result: {result}")
+    return str(result) if result else None
 
 
-def compile_for_edgetpu(tflite_path, output_dir):
-    """Run edgetpu_compiler on the INT8 TFLite model."""
-    if not check_edgetpu_compiler():
-        print("[compile] ERROR: edgetpu_compiler not found.")
-        print("[compile] This tool only runs on x86_64 Linux.")
-        print("[compile] Install: https://coral.ai/docs/edgetpu/compiler/")
-        print("[compile] Or run inside Docker: --platform linux/amd64")
-        sys.exit(1)
+def collect_outputs(model_name, output_dir):
+    """
+    Copy compiled .tflite files to output_dir.
+    ultralytics saves to: ./<model_name>_saved_model/
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    saved_model_dir = f"{model_name}_saved_model"
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    patterns = [
+        f"{saved_model_dir}/*_edgetpu.tflite",   # Edge TPU model
+        f"{saved_model_dir}/*_full_integer_quant_edgetpu.tflite",
+        f"{saved_model_dir}/*_int8.tflite",        # CPU fallback
+        f"{saved_model_dir}/*_full_integer_quant.tflite",
+    ]
 
-    print(f"[compile] Running edgetpu_compiler on {tflite_path}...")
-    result = subprocess.run(
-        ["edgetpu_compiler", "-s", "-o", str(output_dir), tflite_path],
-        capture_output=True, text=True, timeout=300
-    )
+    copied = []
+    seen = set()
+    for pattern in patterns:
+        for src in glob.glob(pattern):
+            dest = os.path.join(output_dir, os.path.basename(src))
+            if src not in seen:
+                shutil.copy2(src, dest)
+                size_mb = os.path.getsize(dest) / (1024 * 1024)
+                log(f"  {os.path.basename(src)} → {dest} ({size_mb:.1f} MB)")
+                copied.append(dest)
+                seen.add(src)
 
-    print(result.stdout)
-    if result.returncode != 0:
-        print(f"[compile] ERROR: edgetpu_compiler failed:\n{result.stderr}")
-        sys.exit(1)
-
-    # Find the output file
-    base_name = Path(tflite_path).stem
-    edgetpu_model = output_dir / f"{base_name}_edgetpu.tflite"
-    if not edgetpu_model.exists():
-        # Look for any _edgetpu.tflite in output dir
-        matches = list(output_dir.glob("*_edgetpu.tflite"))
-        if matches:
-            edgetpu_model = matches[0]
-        else:
-            print("[compile] ERROR: No _edgetpu.tflite output found")
-            sys.exit(1)
-
-    size_mb = edgetpu_model.stat().st_size / (1024 * 1024)
-    print(f"[compile] ✓ Edge TPU model: {edgetpu_model} ({size_mb:.1f} MB)")
-
-    # Check compilation log for segment info
-    log_file = output_dir / f"{base_name}_edgetpu.log"
-    if log_file.exists():
-        log_text = log_file.read_text()
-        print(f"[compile] Compilation log:\n{log_text}")
-        if "not mapped" in log_text.lower():
-            print("[compile] WARNING: Some operations not mapped to Edge TPU — will fall back to CPU")
-
-    return str(edgetpu_model)
+    return copied
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compile YOLO model for Coral Edge TPU")
-    parser.add_argument("--model", default="yolo26n", help="YOLO model name (e.g., yolo26n, yolo26s)")
-    parser.add_argument("--size", type=int, default=320, help="Input image size (320 or 640)")
-    parser.add_argument("--output", default="models/", help="Output directory for compiled model")
-    parser.add_argument("--skip-export", action="store_true", help="Skip TFLite export, use existing .tflite")
-    parser.add_argument("--tflite", help="Path to existing TFLite INT8 model (with --skip-export)")
+    parser = argparse.ArgumentParser(
+        description="Compile YOLO 2026 for Coral Edge TPU via ultralytics format='edgetpu'"
+    )
+    parser.add_argument("--model",  default="yolo26n",
+                        help="YOLO model name (yolo26n, yolo26s, yolo26m, ...)")
+    parser.add_argument("--size",   type=int, default=320,
+                        help="Input image size (default: 320)")
+    parser.add_argument("--output", default="/compile/output",
+                        help="Output directory for compiled model files")
     args = parser.parse_args()
 
-    print(f"[compile] Model: {args.model}, Size: {args.size}×{args.size}")
+    output_dir = args.output  # Already absolute from Docker -v mount
+    log(f"Model : {args.model}  Size: {args.size}×{args.size}  Output: {output_dir}")
 
-    if args.skip_export and args.tflite:
-        tflite_path = args.tflite
-    else:
-        tflite_path = export_tflite_int8(args.model, args.size)
+    # Verify edgetpu_compiler is available before starting the long export
+    if not check_edgetpu_compiler():
+        log("edgetpu_compiler must be on PATH. Inside Docker it is pre-installed.")
+        sys.exit(1)
 
-    edgetpu_path = compile_for_edgetpu(tflite_path, args.output)
-    print(f"\n[compile] Done! Model ready at: {edgetpu_path}")
-    print(f"[compile] Copy to skills/detection/yolo-detection-2026-coral-tpu/models/")
+    # Run ultralytics edgetpu export
+    export_edgetpu(args.model, args.size, output_dir)
+
+    # Collect and copy output files
+    log("Collecting compiled model files...")
+    outputs = collect_outputs(args.model, output_dir)
+
+    if not outputs:
+        log("ERROR: No .tflite files found after export.")
+        log(f"Check {args.model}_saved_model/ for output files.")
+        sys.exit(1)
+
+    edgetpu_files = [f for f in outputs if "_edgetpu" in f]
+    cpu_files     = [f for f in outputs if "_edgetpu" not in f]
+
+    log("")
+    log("✓ Compilation complete!")
+    if edgetpu_files:
+        log(f"  Edge TPU model : {edgetpu_files[0]}")
+    if cpu_files:
+        log(f"  CPU fallback   : {cpu_files[0]}")
+    log("")
+    log("Next steps:")
+    log("  git -C /path/to/DeepCamera add skills/detection/yolo-detection-2026-coral-tpu/models/*.tflite")
+    log("  git commit -m 'feat(coral-tpu): add compiled yolo26n edgetpu model'")
+    log("  git push")
 
 
 if __name__ == "__main__":
