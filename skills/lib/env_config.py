@@ -781,8 +781,6 @@ class HardwareEnv:
         Returns:
             (model, format_str) — the YOLO model and its format name
         """
-        from ultralytics import YOLO
-
         t0 = time.perf_counter()
 
         if use_optimized and self.framework_ok:
@@ -794,6 +792,7 @@ class HardwareEnv:
                     if self.backend == "mps":
                         model = self._load_onnx_coreml(str(optimized_path))
                     else:
+                        from ultralytics import YOLO
                         model = YOLO(str(optimized_path))
                     self.load_ms = (time.perf_counter() - t0) * 1000
                     _log(f"Loaded {self.export_format} model ({self.load_ms:.0f}ms)")
@@ -807,6 +806,7 @@ class HardwareEnv:
                     if self.backend == "mps":
                         model = self._load_onnx_coreml(str(optimized_path))
                     else:
+                        from ultralytics import YOLO
                         model = YOLO(str(optimized_path))
                     self.load_ms = (time.perf_counter() - t0) * 1000
                     _log(f"Loaded HuggingFace ONNX model ({self.load_ms:.0f}ms)")
@@ -815,6 +815,7 @@ class HardwareEnv:
                     _log(f"Failed to load HF-downloaded model: {e}")
 
             # Try exporting then loading
+            from ultralytics import YOLO
             pt_model = YOLO(f"{model_name}.pt")
             exported = self.export_model(pt_model, model_name)
             if exported:
@@ -823,6 +824,7 @@ class HardwareEnv:
                     if self.backend == "mps":
                         model = self._load_onnx_coreml(str(exported))
                     else:
+                        from ultralytics import YOLO
                         model = YOLO(str(exported))
                     self.load_ms = (time.perf_counter() - t0) * 1000
                     _log(f"Loaded freshly exported {self.export_format} model ({self.load_ms:.0f}ms)")
@@ -847,6 +849,7 @@ class HardwareEnv:
             return pt_model, "pytorch"
 
         # No optimization requested or framework missing
+        from ultralytics import YOLO
         model = YOLO(f"{model_name}.pt")
         fallback_device = self.device
         if fallback_device == "cuda":
