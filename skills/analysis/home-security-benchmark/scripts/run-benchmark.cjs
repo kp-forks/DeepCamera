@@ -309,11 +309,11 @@ async function llmCall(messages, opts = {}) {
     // - Local llama-server: requires 'max_tokens', may not understand 'max_completion_tokens'
     const isCloudApi = !opts.vlm && (LLM_API_TYPE === 'openai' || LLM_BASE_URL.includes('openai.com') || LLM_BASE_URL.includes('api.anthropic'));
 
-    // No max_tokens for any API — the streaming loop's 2000-token hard cap is the safety net.
-    // Sending max_tokens to thinking models (Qwen3.5) starves actual output since
-    // reasoning_content counts against the limit.
+    // Inject max_tokens to override the server's default limit (typically 2048 for SwiftLM),
+    // which would otherwise prematurely truncate models with extensive reasoning/thinking output.
+    const maxTokensField = isCloudApi ? 'max_completion_tokens' : 'max_tokens';
+    const computedMaxTokens = opts.maxTokens || 4096; // Ensure sufficient headroom for tools/reasoning
 
-    // Lookup model-family-specific config (e.g. reasoning_effort for Mistral,
     // minTemperature for Nemotron/LFM2).
     // VLM calls skip the LLM family table — VLM models are always local llava-compatible.
     const modelFamily = opts.vlm ? {} : getModelFamily(model || LLM_MODEL);
@@ -341,6 +341,7 @@ async function llmCall(messages, opts = {}) {
         // which activates prefix buffering to strip hallucinated artifacts
         ...(opts.expectJSON && !isCloudApi && { response_format: { type: 'json_object' } }),
         ...(opts.tools && { tools: opts.tools }),
+        [maxTokensField]: computedMaxTokens,
         // Model-family-specific params (e.g. reasoning_effort:'none' for Mistral).
         // These are merged last so they take precedence over defaults.
         ...modelFamilyParams,
@@ -483,14 +484,14 @@ async function llmCall(messages, opts = {}) {
                     }
                 }
                 // Hard cap: abort if token count far exceeds maxTokens
-                if (opts.maxTokens && tokenCount > opts.maxTokens * 2) {
-                    log(`    ⚠ Aborting: ${tokenCount} tokens exceeds ${opts.maxTokens}×2 safety limit`);
+                if (computedMaxTokens && tokenCount > computedMaxTokens * 2) {
+                    log(`    ⚠ Aborting: ${tokenCount} tokens exceeds ${computedMaxTokens}×2 safety limit`);
                     controller.abort();
                     break;
                 }
-                // Global safety limit: no benchmark test should ever need >2000 tokens
-                if (tokenCount > 2000) {
-                    log(`    ⚠ Aborting: ${tokenCount} tokens exceeds global 2000-token safety limit`);
+                // Global safety limit: no benchmark test should ever need >8000 tokens
+                if (tokenCount > 8192) {
+                    log(`    ⚠ Aborting: ${tokenCount} tokens exceeds global 8192-token safety limit`);
                     controller.abort();
                     break;
                 }
@@ -2636,7 +2637,7 @@ async function main() {
     if (TEST_MODE !== 'full') {
         const isVlmSuite = (name) => name.includes('VLM Scene') || name.includes('📸');
         const originalCount = suites.length;
-        if (TEST_MODE === 'llm') {
+        if (TEST_MODE !== 'vlm') {
             // Remove VLM image-analysis suites (VLM-to-Alert Triage stays — it's LLM-based text triage)
             for (let i = suites.length - 1; i >= 0; i--) {
                 if (isVlmSuite(suites[i].name)) suites.splice(i, 1);
